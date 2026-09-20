@@ -1,0 +1,575 @@
+import { useEffect, useState } from 'react';
+import {
+  Search,
+  Clock,
+  ShieldCheck,
+  CheckCircle2,
+  AlertCircle,
+  Copy,
+  Check,
+  Printer,
+  ArrowLeft,
+  MapPin,
+  Waves,
+  XCircle,
+  CalendarDays,
+  LogOut,
+  Moon,
+} from 'lucide-react';
+import { useParams, useNavigate } from 'react-router-dom';
+import type { Booking } from '../types';
+import { api } from '../services/api';
+import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
+import { EmptyState } from '../components/ui/EmptyState';
+import { Skeleton } from '../components/ui/Skeleton';
+import { Reveal } from '../components/ui/Reveal';
+import { Tabs } from '../components/ui/Tabs';
+import { cn } from '../lib/cn';
+
+interface ReservationStatusPageProps {
+  initialRefCode?: string;
+  onExploreStays?: () => void;
+}
+
+const DEMO_REFS = ['GK-782941', 'GK-913482', 'GK-654127'];
+
+function useCountdown(target?: string) {
+  const [left, setLeft] = useState('');
+  useEffect(() => {
+    if (!target) return;
+    const t = new Date(target).getTime();
+    const tick = () => {
+      const diff = t - Date.now();
+      if (diff <= 0) {
+        setLeft('expired');
+        return;
+      }
+      const m = Math.floor(diff / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setLeft(`${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [target]);
+  return left;
+}
+
+function StatusPill({ status }: { status: Booking['status'] }) {
+  const map = {
+    confirmed: { label: 'Confirmed', icon: CheckCircle2, cls: 'border-ok/30 bg-ok/10 text-ok' },
+    declined: { label: 'Declined', icon: XCircle, cls: 'border-err/30 bg-err/10 text-err' },
+    cancelled: { label: 'Cancelled', icon: XCircle, cls: 'border-ink-3/30 bg-paper-2 text-ink-3' },
+    awaiting_host: { label: 'Awaiting host', icon: Clock, cls: 'border-warn/30 bg-warn/10 text-warn' },
+  } as const;
+  const m = map[status] ?? map.awaiting_host;
+  const Icon = m.icon;
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-wider', m.cls)}>
+      <Icon className="h-3 w-3" />
+      {m.label}
+    </span>
+  );
+}
+
+export function ReservationStatusPage({ initialRefCode: propRefCode = '', onExploreStays }: ReservationStatusPageProps) {
+  const { refCode: urlRefCode } = useParams<{ refCode?: string }>();
+  const navigate = useNavigate();
+  const activeInitialCode = urlRefCode || propRefCode;
+  const [searchQuery, setSearchQuery] = useState(activeInitialCode);
+  const [allBookings, setAllBookings] = useState<Booking[]>([]);
+  const [matchingBookings, setMatchingBookings] = useState<Booking[]>([]);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [copiedRef, setCopiedRef] = useState<string | null>(null);
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'confirmed' | 'awaiting_host'>('all');
+
+  const fetchBookings = async () => {
+    try {
+      setLoading(true);
+      const data = await api.getBookings();
+      setAllBookings(data);
+      if (searchQuery.trim()) {
+        filterResults(searchQuery.trim(), data);
+      } else {
+        setMatchingBookings(data);
+        if (activeInitialCode) {
+          const match = data.find((b) => b.reference_code.toLowerCase() === activeInitialCode.toLowerCase());
+          if (match) setSelectedBooking(match);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load bookings', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchBookings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlRefCode]);
+
+  const handleExplore = () => {
+    if (onExploreStays) onExploreStays();
+    navigate('/');
+  };
+
+  const filterResults = (query: string, list = allBookings) => {
+    const q = query.toLowerCase().trim();
+    if (!q) {
+      setMatchingBookings(list);
+      return;
+    }
+    const filtered = list.filter(
+      (b) =>
+        b.reference_code.toLowerCase().includes(q) ||
+        b.user_phone.toLowerCase().includes(q) ||
+        b.user_name.toLowerCase().includes(q) ||
+        (b.homestay_title && b.homestay_title.toLowerCase().includes(q)),
+    );
+    setMatchingBookings(filtered);
+    setHasSearched(true);
+    if (filtered.length === 1 && filtered[0].reference_code.toLowerCase() === q) {
+      setSelectedBooking(filtered[0]);
+    }
+  };
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    filterResults(searchQuery);
+  };
+
+  const handleCopyRef = (ref: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    navigator.clipboard.writeText(ref);
+    setCopiedRef(ref);
+    setTimeout(() => setCopiedRef(null), 2500);
+  };
+
+  const formatCardDate = (dateStr?: string) => {
+    if (!dateStr) return 'Upcoming';
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const getMonthGroup = (dateStr?: string) => {
+    if (!dateStr) return 'Upcoming Stays';
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return 'Upcoming Stays';
+      return d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+    } catch {
+      return 'Upcoming Stays';
+    }
+  };
+
+  const visibleBookings =
+    statusFilter === 'all' ? matchingBookings : matchingBookings.filter((b) => b.status === statusFilter);
+
+  const groupedBookings = visibleBookings.reduce<Record<string, Booking[]>>((acc, booking) => {
+    const group = getMonthGroup(booking.check_in);
+    if (!acc[group]) acc[group] = [];
+    acc[group].push(booking);
+    return acc;
+  }, {});
+
+  const todayISO = new Date().toISOString().split('T')[0];
+  const upcomingCount = matchingBookings.filter((b) => b.check_in >= todayISO).length;
+  const totalNights = matchingBookings.reduce((sum, b) => {
+    const n =
+      b.nights || Math.max(1, Math.ceil((new Date(b.check_out).getTime() - new Date(b.check_in).getTime()) / 86400000));
+    return sum + n;
+  }, 0);
+  const holdsPaid = matchingBookings.reduce((sum, b) => sum + (b.advance_paid || 0), 0);
+
+  const countdown = useCountdown(selectedBooking?.hold_expires_at);
+
+  if (selectedBooking) {
+    const isConfirmed = selectedBooking.status === 'confirmed';
+    const isDeclined = selectedBooking.status === 'declined';
+    const isAwaiting = !isConfirmed && !isDeclined;
+    const nights =
+      selectedBooking.nights ||
+      Math.max(1, Math.ceil((new Date(selectedBooking.check_out).getTime() - new Date(selectedBooking.check_in).getTime()) / 86400000));
+
+    const steps = [
+      { label: 'Hold secured', state: 'done' as const },
+      { label: 'Host review', state: isAwaiting ? ('active' as const) : ('done' as const) },
+      {
+        label: isDeclined ? 'Declined' : 'Confirmed',
+        state: isDeclined ? ('declined' as const) : isAwaiting ? ('todo' as const) : ('done' as const),
+      },
+    ];
+
+    return (
+      <div className="w-full space-y-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-4">
+          <button
+            type="button"
+            onClick={() => setSelectedBooking(null)}
+            className="inline-flex items-center gap-2 rounded-xl border border-line bg-elevated px-3.5 py-2 text-xs font-semibold text-ink-2 transition-all hover:border-tide hover:text-tide active:scale-95"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            <span>All bookings</span>
+          </button>
+
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-line bg-elevated px-3.5 py-2 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-2"
+            >
+              <Printer className="h-3.5 w-3.5" />
+              <span>Print voucher</span>
+            </button>
+            <StatusPill status={selectedBooking.status} />
+          </div>
+        </div>
+
+        <Reveal>
+          <div className="print-voucher relative overflow-hidden rounded-3xl border border-line bg-elevated">
+            <span
+              className="pointer-events-none absolute -right-4 top-24 hidden rotate-[-8deg] select-none font-display text-[120px] font-bold leading-none text-ink/[0.04] md:block"
+              aria-hidden="true"
+            >
+              {isConfirmed ? 'CONFIRMED' : isDeclined ? 'DECLINED' : 'ON HOLD'}
+            </span>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-paper-2 px-6 py-4 sm:px-8">
+              <div className="flex items-center gap-3">
+                <span className="overline">E-voucher</span>
+                <span className="flex items-center gap-2 rounded-lg border border-line bg-elevated px-3 py-1">
+                  <span className="font-mono-data text-base font-semibold text-ink">{selectedBooking.reference_code}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => handleCopyRef(selectedBooking.reference_code, e)}
+                    className="text-ink-3 transition-colors hover:text-tide"
+                    aria-label="Copy reference"
+                  >
+                    {copiedRef === selectedBooking.reference_code ? <Check className="h-4 w-4 text-ok" /> : <Copy className="h-4 w-4" />}
+                  </button>
+                </span>
+              </div>
+
+              <div className="flex items-center gap-4">
+                <span className="text-xs text-ink-3">
+                  Booked on{' '}
+                  {new Date(selectedBooking.created_at || Date.now()).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </span>
+                <span
+                  className={cn(
+                    'inline-block rotate-6 rounded-md border-2 px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-widest',
+                    isConfirmed ? 'border-ok/60 text-ok' : isDeclined ? 'border-err/60 text-err' : 'border-warn/60 text-warn',
+                  )}
+                >
+                  {isConfirmed ? 'Confirmed ✓' : isDeclined ? 'Declined' : 'Awaiting host'}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px]">
+              <div className="min-w-0 space-y-7 p-6 sm:p-8">
+                <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+                  <div className="h-36 w-full shrink-0 overflow-hidden rounded-2xl border border-line sm:w-56">
+                    <img
+                      src="https://images.unsplash.com/photo-1510798831971-661eb04b3739?auto=format&fit=crop&w=700&q=80"
+                      alt={selectedBooking.homestay_title}
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
+                  <div className="min-w-0 space-y-2">
+                    <Badge variant="dot">Family stewarded</Badge>
+                    <h2 className="font-display text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+                      {selectedBooking.homestay_title}
+                    </h2>
+                    <p className="flex items-center gap-1.5 text-xs text-ink-2">
+                      <MapPin className="h-3.5 w-3.5 shrink-0 text-tide" />
+                      {selectedBooking.location_display} • Gokarna, Karnataka
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-line bg-paper-2 p-5">
+                  <p className="overline mb-6">Itinerary</p>
+                  <div className="relative flex items-start justify-between">
+                    <div className="absolute left-9 right-9 top-3.5 h-px bg-line" aria-hidden="true" />
+                    <div className="relative z-10 flex flex-col items-center gap-2 text-center">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-tide bg-elevated">
+                        <CalendarDays className="h-3.5 w-3.5 text-tide" />
+                      </span>
+                      <div>
+                        <p className="font-mono-data text-xs font-semibold text-ink">{selectedBooking.check_in}</p>
+                        <p className="text-[10px] text-ink-3">Check-in · after 12:00</p>
+                      </div>
+                    </div>
+                    <div className="relative z-10 flex flex-col items-center gap-2 text-center">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-line-2 bg-elevated">
+                        <Moon className="h-3.5 w-3.5 text-ember" />
+                      </span>
+                      <div>
+                        <p className="font-mono-data text-xs font-semibold text-ink">
+                          {nights} night{nights > 1 ? 's' : ''}
+                        </p>
+                        <p className="text-[10px] text-ink-3">
+                          {selectedBooking.guests_count || 2} guest{(selectedBooking.guests_count || 2) > 1 ? 's' : ''} · 1 room
+                        </p>
+                      </div>
+                    </div>
+                    <div className="relative z-10 flex flex-col items-center gap-2 text-center">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-tide bg-elevated">
+                        <LogOut className="h-3.5 w-3.5 text-tide" />
+                      </span>
+                      <div>
+                        <p className="font-mono-data text-xs font-semibold text-ink">{selectedBooking.check_out}</p>
+                        <p className="text-[10px] text-ink-3">Check-out · before 11:00</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <p className="overline">Reservation progress</p>
+                  <div className="flex items-center">
+                    {steps.map((step, i) => (
+                      <div key={step.label} className={cn('flex items-center', i < steps.length - 1 && 'flex-1')}>
+                        <div className="flex flex-col items-center gap-1.5">
+                          <span
+                            className={cn(
+                              'flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-semibold',
+                              step.state === 'done' && 'border-tide bg-tide text-white',
+                              step.state === 'active' && 'border-tide bg-tide/10 text-tide',
+                              step.state === 'declined' && 'border-err bg-err text-white',
+                              step.state === 'todo' && 'border-line-2 bg-paper-2 text-ink-3',
+                            )}
+                          >
+                            {step.state === 'done' && !isDeclined ? <Check className="h-4 w-4" /> : i + 1}
+                          </span>
+                          <span className="whitespace-nowrap font-mono text-[9px] uppercase tracking-wider text-ink-3">{step.label}</span>
+                        </div>
+                        {i < steps.length - 1 ? (
+                          <div className={cn('mx-2 h-0.5 flex-1 rounded-full', steps[i].state === 'done' ? 'bg-tide' : 'bg-line')} />
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                  {isAwaiting && countdown && countdown !== 'expired' ? (
+                    <p className="font-mono text-[11px] text-warn">Hold expires in {countdown}</p>
+                  ) : null}
+                </div>
+
+                <div className="flex items-start gap-2 rounded-xl border border-line bg-paper-2 p-3 text-[11px] text-ink-2">
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-tide" />
+                  <span>Your dates are locked. Our concierge coordinates your arrival — no middleman contact needed.</span>
+                </div>
+              </div>
+
+              <div className="relative flex flex-col justify-between border-t border-dashed border-line-2 p-6 lg:border-l lg:border-t-0">
+                <span className="absolute -top-2.5 left-8 h-5 w-5 rounded-full bg-paper lg:hidden" aria-hidden="true" />
+                <span className="absolute -top-2.5 right-8 h-5 w-5 rounded-full bg-paper lg:hidden" aria-hidden="true" />
+                <span className="absolute -left-2.5 -top-2.5 hidden h-5 w-5 rounded-full bg-paper lg:block" aria-hidden="true" />
+                <span className="absolute -left-2.5 -bottom-2.5 hidden h-5 w-5 rounded-full bg-paper lg:block" aria-hidden="true" />
+
+                <div className="space-y-2.5 text-xs">
+                  <p className="overline mb-3">Fare receipt</p>
+                  <div className="flex justify-between border-b border-dashed border-line-2 pb-2 text-ink-2">
+                    <span>Total stay tariff</span>
+                    <span className="font-mono-data font-semibold text-ink">₹{selectedBooking.total_amount}</span>
+                  </div>
+                  <div className="flex justify-between font-semibold text-tide">
+                    <span>20% hold paid online</span>
+                    <span className="font-mono-data">₹{selectedBooking.advance_paid}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-dashed border-line-2 pb-2">
+                    <span className="font-semibold text-ink">80% balance at property</span>
+                    <span className="font-mono-data font-semibold text-ink">₹{selectedBooking.balance_payable_at_property}</span>
+                  </div>
+                  <div className="flex justify-between text-ink-3">
+                    <span>Convenience fee</span>
+                    <span className="font-semibold text-ok">₹0</span>
+                  </div>
+                </div>
+
+                <div className="mt-6 flex flex-col items-center gap-2 border-t border-dashed border-line-2 pt-5">
+                  <div className="flex h-12 items-stretch gap-[2px]" aria-hidden="true">
+                    {Array.from({ length: 42 }).map((_, i) => (
+                      <span
+                        key={i}
+                        className="w-[2px] bg-ink"
+                        style={{ height: `${[55, 100, 80, 100, 65, 90, 100][i % 7]}%` }}
+                      />
+                    ))}
+                  </div>
+                  <span className="font-mono-data text-sm font-semibold tracking-[0.25em] text-ink">{selectedBooking.reference_code}</span>
+                  <span className="font-mono text-[9px] uppercase tracking-widest text-ok">Valid for check-in</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Reveal>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Button onClick={handleExplore}>Explore more stays</Button>
+          <button
+            type="button"
+            onClick={() => setSelectedBooking(null)}
+            className="rounded-xl border border-line bg-elevated px-4 py-2.5 text-xs font-semibold text-ink-2 transition-colors hover:bg-paper-2"
+          >
+            Back to all bookings
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full space-y-8">
+      <div className="mx-auto max-w-xl space-y-3 text-center">
+        <p className="overline">Reservation desk</p>
+        <h1 className="font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl">Your bookings</h1>
+        <p className="text-sm text-ink-2">
+          Verify your 20% commitment hold, watch host approval, and open any reservation for the full voucher.
+        </p>
+      </div>
+
+      <form onSubmit={handleSearchSubmit} className="mx-auto max-w-2xl">
+        <div className="glass flex items-center rounded-2xl p-2">
+          <Search className="ml-3 h-4 w-4 shrink-0 text-ink-3" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              filterResults(e.target.value);
+            }}
+            placeholder="Booking reference (e.g. GK-782941) or WhatsApp number"
+            aria-label="Search bookings"
+            className="w-full bg-transparent px-3.5 py-2 text-sm font-medium text-ink placeholder:text-ink-3 focus:outline-none"
+          />
+          <Button type="submit" size="sm" className="shrink-0">
+            Search
+          </Button>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+          <span className="font-mono text-[10px] uppercase tracking-wider text-ink-3">Try demo refs:</span>
+          {DEMO_REFS.map((ref) => (
+            <button
+              key={ref}
+              type="button"
+              onClick={() => {
+                setSearchQuery(ref);
+                filterResults(ref);
+              }}
+              className="rounded-full border border-line-2 px-2.5 py-1 font-mono text-[10px] font-semibold text-ink-2 transition-colors hover:border-tide hover:text-tide"
+            >
+              {ref}
+            </button>
+          ))}
+        </div>
+      </form>
+
+      {!loading && matchingBookings.length > 0 ? (
+        <>
+          <div className="mx-auto grid w-full max-w-3xl grid-cols-3 gap-3">
+            <div className="rounded-2xl border border-line bg-elevated p-4 text-center">
+              <p className="font-display text-2xl font-semibold text-ink">{upcomingCount}</p>
+              <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-ink-3">Upcoming stays</p>
+            </div>
+            <div className="rounded-2xl border border-line bg-elevated p-4 text-center">
+              <p className="font-display text-2xl font-semibold text-ink">{totalNights}</p>
+              <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-ink-3">Total nights</p>
+            </div>
+            <div className="rounded-2xl border border-line bg-elevated p-4 text-center">
+              <p className="font-display text-2xl font-semibold text-ink">₹{holdsPaid.toLocaleString('en-IN')}</p>
+              <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-ink-3">Holds paid</p>
+            </div>
+          </div>
+
+          <div className="flex justify-center">
+            <Tabs
+              items={[
+                { id: 'all', label: 'All' },
+                { id: 'confirmed', label: 'Confirmed' },
+                { id: 'awaiting_host', label: 'Awaiting host' },
+              ]}
+              active={statusFilter}
+              onChange={(id) => setStatusFilter(id as 'all' | 'confirmed' | 'awaiting_host')}
+            />
+          </div>
+        </>
+      ) : null}
+
+      {loading ? (
+        <div className="mx-auto max-w-2xl space-y-4">
+          <Skeleton className="h-24 w-full rounded-2xl" />
+          <Skeleton className="h-24 w-full rounded-2xl" />
+          <Skeleton className="h-24 w-full rounded-2xl" />
+        </div>
+      ) : matchingBookings.length === 0 && hasSearched ? (
+        <EmptyState
+          icon={<AlertCircle className="h-6 w-6" />}
+          overline="No results"
+          title="No reservation located"
+          description={`We couldn't find a booking for "${searchQuery}". Check the reference code or registered phone number.`}
+          action={{ label: 'Explore sanctuaries', onClick: handleExplore }}
+          className="mx-auto max-w-xl"
+        />
+      ) : (
+        <div className="space-y-8">
+          {Object.entries(groupedBookings).map(([monthGroup, bookings]) => (
+            <div key={monthGroup} className="space-y-3">
+              <p className="overline pl-1">{monthGroup}</p>
+              <div className="space-y-3">
+                {bookings.map((b) => {
+                  const nights =
+                    b.nights ||
+                    Math.max(1, Math.ceil((new Date(b.check_out).getTime() - new Date(b.check_in).getTime()) / 86400000));
+                  return (
+                    <div
+                      key={b.id}
+                      onClick={() => setSelectedBooking(b)}
+                      className="group cursor-pointer rounded-2xl border border-line bg-elevated p-5 transition-all hover:-translate-y-0.5 hover:border-tide"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0 space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-2.5">
+                            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-tide-glow/15 text-tide">
+                              <Waves className="h-4 w-4" />
+                            </span>
+                            <span className="font-mono text-[11px] uppercase tracking-wider text-ink-3">{b.reference_code}</span>
+                            <StatusPill status={b.status} />
+                          </div>
+                          <h3 className="truncate font-display text-lg font-semibold text-ink">{b.homestay_title || 'Coastal Sanctuary'}</h3>
+                          <p className="flex items-center gap-1.5 text-xs text-ink-2">
+                            <MapPin className="h-3 w-3 text-tide" />
+                            {b.location_display || 'Gokarna'} • {b.guests_count || 2} guests • {nights} night{nights > 1 ? 's' : ''}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="font-mono-data text-sm font-semibold text-ink">{formatCardDate(b.check_in)}</p>
+                          <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-ink-3">
+                            {nights} night{nights > 1 ? 's' : ''} · ₹{b.advance_paid} hold
+                          </p>
+                          <p className="mt-0.5 text-xs font-semibold text-tide transition-transform group-hover:translate-x-0.5">
+                            View details →
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

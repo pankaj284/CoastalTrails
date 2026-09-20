@@ -1,0 +1,187 @@
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { CalendarCheck, Home, Compass, LogOut, Moon, Sun, Search, type LucideIcon } from 'lucide-react';
+import { NavbarWeatherBadge } from './NavbarWeatherBadge';
+import { useTheme } from '../lib/theme';
+import { cn } from '../lib/cn';
+import type { User } from '../types';
+
+interface NavbarProps {
+  currentTab?: string;
+  setCurrentTab?: (tab: string) => void;
+  currentUser?: User | null;
+  onOpenAuth?: (mode?: 'signin' | 'register') => void;
+  onSignOut?: () => void;
+  onOpenPalette?: () => void;
+}
+
+interface NavItem {
+  id: 'homestays' | 'route' | 'bookings';
+  label: string;
+  icon: LucideIcon;
+  active: boolean;
+  path: string;
+}
+
+export function Navbar({
+  currentTab: propTab,
+  setCurrentTab: propSetCurrentTab,
+  currentUser,
+  onOpenAuth,
+  onSignOut,
+  onOpenPalette,
+}: NavbarProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { theme, toggle } = useTheme();
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+
+  const isHomestays = location.pathname === '/' || location.pathname === '/homestays' || location.pathname.startsWith('/stay') || propTab === 'homestays';
+  const isTrails = location.pathname === '/trails' || location.pathname === '/route' || propTab === 'route';
+  const isBookings = location.pathname === '/bookings' || location.pathname.startsWith('/reservation') || propTab === 'bookings';
+
+  const handleNav = (tab: 'homestays' | 'route' | 'bookings', path: string) => {
+    if (propSetCurrentTab) propSetCurrentTab(tab);
+    navigate(path);
+  };
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (profileRef.current && !profileRef.current.contains(event.target as Node)) setIsProfileOpen(false);
+    }
+    if (isProfileOpen) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isProfileOpen]);
+
+  const navItems: NavItem[] = [
+    { id: 'homestays', label: 'Homestays', icon: Home, active: isHomestays, path: '/' },
+    { id: 'route', label: 'Trails & Ferry', icon: Compass, active: isTrails, path: '/trails' },
+    { id: 'bookings', label: 'Bookings', icon: CalendarCheck, active: isBookings, path: '/bookings' },
+  ];
+
+  return (
+    <>
+      <header className="glass fixed inset-x-0 top-0 z-chrome border-b border-line">
+        <div className="relative flex h-16 w-full items-center justify-between gap-4 px-4 sm:px-8 lg:px-10">
+          <button onClick={() => handleNav('homestays', '/')} aria-label="Coastal Trails home" className="group flex shrink-0 items-center">
+            <img
+              src="/coastal-trails-logo.svg"
+              alt="Coastal Trails"
+              className="h-14 w-auto object-contain"
+            />
+          </button>
+
+          <nav className="absolute left-1/2 top-1/2 hidden -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full border border-line bg-paper-2 p-1 md:flex">
+            {navItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => handleNav(item.id, item.path)}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold transition-colors duration-micro',
+                  item.active ? 'bg-tide text-white' : 'text-ink-2 hover:text-ink',
+                )}
+              >
+                <item.icon className="h-3.5 w-3.5" />
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </nav>
+
+          <div className="flex shrink-0 items-center gap-2">
+            <NavbarWeatherBadge />
+            <button
+              onClick={toggle}
+              aria-label="Toggle theme"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-line bg-elevated text-ink-2 transition-colors hover:text-ink"
+            >
+              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
+            {onOpenPalette ? (
+              <button
+                onClick={onOpenPalette}
+                className="hidden items-center gap-2 rounded-full border border-line bg-elevated px-3 py-1.5 text-xs text-ink-3 transition-colors hover:text-ink sm:flex"
+              >
+                <Search className="h-3.5 w-3.5" />
+                <span className="font-mono">⌘K</span>
+              </button>
+            ) : null}
+            {currentUser ? (
+              <div ref={profileRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsProfileOpen((p) => !p)}
+                  className="flex items-center gap-2 rounded-full border border-line bg-elevated py-1 pl-1 pr-3 text-xs font-semibold text-ink"
+                >
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-tide text-xs uppercase text-white">
+                    {currentUser.name.charAt(0)}
+                  </span>
+                  <span className="hidden max-w-[90px] truncate sm:inline">{currentUser.name.split(' ')[0]}</span>
+                </button>
+                {isProfileOpen ? (
+                  <div className="absolute right-0 top-full mt-2 w-52 rounded-2xl border border-line bg-elevated p-2 shadow-2xl">
+                    <div className="border-b border-line px-3 py-2">
+                      <p className="truncate text-xs font-semibold text-ink">{currentUser.name}</p>
+                      <p className="truncate text-[10px] text-ink-3">{currentUser.phone || currentUser.email}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleNav('bookings', '/bookings');
+                        setIsProfileOpen(false);
+                      }}
+                      className="mt-1 flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-medium text-ink-2 transition-colors hover:bg-paper-2 hover:text-ink"
+                    >
+                      <CalendarCheck className="h-3.5 w-3.5 text-tide" />
+                      <span>My Bookings</span>
+                    </button>
+                    {onSignOut ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onSignOut();
+                          setIsProfileOpen(false);
+                        }}
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-xs font-medium text-err transition-colors hover:bg-err/10"
+                      >
+                        <LogOut className="h-3.5 w-3.5" />
+                        <span>Sign Out</span>
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onOpenAuth && onOpenAuth('signin')}
+                className="flex h-9 items-center gap-1.5 rounded-full bg-tide px-3.5 text-xs font-semibold text-white transition-colors hover:bg-tide-2"
+              >
+                <span className="hidden sm:inline">Sign In</span>
+                <span className="sm:hidden">Login</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+
+      <nav className="glass fixed inset-x-0 bottom-0 z-chrome border-t border-line px-4 py-1.5 md:hidden">
+        <div className="flex items-center justify-around">
+          {navItems.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => handleNav(item.id, item.path)}
+              className={cn(
+                'flex flex-col items-center gap-1 rounded-xl px-3 py-1 transition-colors',
+                item.active ? 'text-tide' : 'text-ink-3 hover:text-ink',
+              )}
+            >
+              <item.icon className="h-5 w-5" />
+              <span className="text-[10px] font-medium">{item.label}</span>
+            </button>
+          ))}
+        </div>
+      </nav>
+    </>
+  );
+}
