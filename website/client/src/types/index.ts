@@ -12,6 +12,7 @@ export interface Homestay {
   is_host_verified: number | boolean;
   walking_minutes_to_beach: number;
   total_rooms: number;
+  availability_listed?: number | boolean;
   description: string;
   imageUrls: string[];
   amenities: string[];
@@ -73,12 +74,41 @@ export interface DatabaseTableInfo {
   }[];
 }
 
+export interface ReviewMedia {
+  url: string;
+  type: 'image';
+}
+
+export interface Review {
+  id: number;
+  user_id?: string | null;
+  guest_name: string;
+  rating: number;
+  title: string;
+  body: string;
+  stay_details?: string;
+  verified: number | boolean;
+  helpful_count: number;
+  created_at: string;
+  updated_at?: string;
+  media?: ReviewMedia[];
+}
+
+export interface ReviewSummary {
+  count: number;
+  average: number;
+  distribution: Record<string, number>;
+  topics: { label: string; count: number }[];
+  text: string;
+}
+
 export interface User {
   id: string;
   name: string;
   phone: string;
   email?: string;
   avatar?: string;
+  token?: string;
 }
 
 export interface CustomMapLocation {

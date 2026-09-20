@@ -1,6 +1,44 @@
-import { Homestay, Booking, TransitRoute, DatabaseTableInfo } from '../types';
+import { Homestay, Booking, TransitRoute, DatabaseTableInfo, User, Review, ReviewSummary } from '../types';
 
 const API_BASE = '/api';
+
+function getAuthToken(): string | null {
+  try {
+    return JSON.parse(localStorage.getItem('gokarna_traveler_user') || 'null')?.token || null;
+  } catch {
+    return null;
+  }
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function authRequest(path: string, body: Record<string, unknown>): Promise<User> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error('Unable to reach the server. Check your connection and try again.');
+  }
+
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    throw new Error(data?.error || 'Something went wrong. Please try again.');
+  }
+  return {
+    id: String(data.id),
+    name: data.name,
+    phone: data.phone || '',
+    email: data.email || undefined,
+    token: data.token,
+  };
+}
 
 export const api = {
   // Homestays
@@ -34,12 +72,12 @@ export const api = {
     return data.dates || {};
   },
 
-  async getHomestayAvailability(id: string, from: string, to: string): Promise<Record<string, number>> {
+  async getHomestayAvailability(id: string, from: string, to: string): Promise<{ listed: boolean; dates: Record<string, number> }> {
     const q = new URLSearchParams({ from, to });
     const res = await fetch(`${API_BASE}/homestays/${id}/availability?${q.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch stay availability');
     const data = await res.json();
-    return data.dates || {};
+    return { listed: data.listed !== false, dates: data.dates || {} };
   },
 
   async createHomestay(data: Partial<Homestay>): Promise<Homestay> {
@@ -104,6 +142,88 @@ export const api = {
     const res = await fetch(`${API_BASE}/routes`);
     if (!res.ok) throw new Error('Failed to fetch routes');
     return res.json();
+  },
+
+  // Auth
+  async register(data: { name: string; phone: string; email: string; password: string }): Promise<User> {
+    return authRequest('/auth/register', data);
+  },
+
+  async login(identifier: string, password: string): Promise<User> {
+    return authRequest('/auth/login', { identifier, password });
+  },
+
+  async logout(): Promise<void> {
+    try {
+      await fetch(`${API_BASE}/auth/logout`, { method: 'POST', headers: { ...authHeaders() } });
+    } catch {
+      /* signing out locally is enough */
+    }
+  },
+
+  // Reviews
+  async getReviews(
+    homestayId: string,
+    limit = 6,
+    offset = 0,
+  ): Promise<{ reviews: Review[]; total: number; summary: ReviewSummary | null }> {
+    const q = new URLSearchParams({ homestay_id: homestayId, limit: String(limit), offset: String(offset) });
+    const res = await fetch(`${API_BASE}/reviews?${q.toString()}`);
+    if (!res.ok) throw new Error('Failed to fetch reviews');
+    return res.json();
+  },
+
+  async markReviewHelpful(id: number): Promise<{ id: number; helpful_count: number }> {
+    const res = await fetch(`${API_BASE}/reviews/${id}/helpful`, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to mark review helpful');
+    return res.json();
+  },
+
+  async addReview(data: {
+    homestay_id: string;
+    rating: number;
+    title: string;
+    body: string;
+    stay_details?: string;
+    media?: { dataUrl: string; type: 'image' }[];
+  }): Promise<Review> {
+    const res = await fetch(`${API_BASE}/reviews`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.error || 'Failed to post your review');
+    }
+    return res.json();
+  },
+
+  async updateReview(
+    id: number,
+    data: { rating: number; title: string; body: string },
+  ): Promise<Review> {
+    const res = await fetch(`${API_BASE}/reviews/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.error || 'Failed to update your review');
+    }
+    return res.json();
+  },
+
+  async deleteReview(id: number): Promise<void> {
+    const res = await fetch(`${API_BASE}/reviews/${id}`, {
+      method: 'DELETE',
+      headers: { ...authHeaders() },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.error || 'Failed to delete your review');
+    }
   },
 
   // Database Studio

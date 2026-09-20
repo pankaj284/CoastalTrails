@@ -13,8 +13,9 @@ import {
   Star,
   Users,
   Waves,
+  X,
 } from 'lucide-react';
-import type { Booking, Homestay } from '../types';
+import type { Booking, Homestay, User } from '../types';
 import { api } from '../services/api';
 import { DateRangePicker } from '../components/ui/DateRangePicker';
 import { Button } from '../components/ui/Button';
@@ -29,6 +30,53 @@ import { easeOut, springFast } from '../lib/motion';
 const FALLBACK_IMAGE =
   'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1600&q=80';
 const EXTRA_GUEST_CHARGE = 400;
+
+function formatDateList(dates: string[]): string {
+  return dates
+    .map((d) => {
+      const dt = new Date(`${d}T00:00:00`);
+      return isNaN(dt.getTime()) ? d : dt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    })
+    .join(', ');
+}
+
+function nightsBetween(from: string, to: string): string[] {
+  const out: string[] = [];
+  if (!from || !to) return out;
+  const start = new Date(`${from}T00:00:00`);
+  const end = new Date(`${to}T00:00:00`);
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || end <= start) return out;
+  for (const d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
+    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+  }
+  return out;
+}
+
+function FlashMessage({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -6 }}
+      transition={{ duration: 0.2, ease: easeOut }}
+      role="alert"
+      className="flex items-start justify-between gap-2.5 rounded-xl border border-err/30 bg-err/10 p-3 text-xs font-semibold text-err"
+    >
+      <span className="flex items-start gap-2">
+        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>{message}</span>
+      </span>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Dismiss message"
+        className="shrink-0 rounded-full p-0.5 text-err/70 transition-colors hover:bg-err/10 hover:text-err"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </motion.div>
+  );
+}
 
 function CountUp({ value }: { value: number }) {
   const [display, setDisplay] = useState(value);
@@ -62,7 +110,7 @@ const stepVariants = {
   exit: (dir: number) => ({ x: dir > 0 ? -48 : 48, opacity: 0 }),
 };
 
-export function BookingPage() {
+export function BookingPage({ currentUser }: { currentUser?: User | null }) {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [homestay, setHomestay] = useState<Homestay | null>(null);
@@ -72,8 +120,8 @@ export function BookingPage() {
   const [checkIn, setCheckIn] = useState('');
   const [checkOut, setCheckOut] = useState('');
   const [guests, setGuests] = useState(2);
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
+  const [name, setName] = useState(currentUser?.name ?? '');
+  const [phone, setPhone] = useState(currentUser?.phone ?? '');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [confirmed, setConfirmed] = useState<Booking | null>(null);
@@ -115,6 +163,7 @@ export function BookingPage() {
   }, [id]);
 
   const [stayAvailability, setStayAvailability] = useState<Record<string, number>>({});
+  const [availabilityListed, setAvailabilityListed] = useState(true);
 
   useEffect(() => {
     if (!homestay) return;
@@ -125,9 +174,19 @@ export function BookingPage() {
     toD.setDate(toD.getDate() + 120);
     api
       .getHomestayAvailability(homestay.id, from, toD.toISOString().split('T')[0])
-      .then(setStayAvailability)
+      .then((res) => {
+        setStayAvailability(res.dates);
+        setAvailabilityListed(res.listed);
+      })
       .catch((err) => console.error('Failed to load stay availability:', err));
   }, [homestay]);
+
+  // Flash messages dismiss themselves after a few seconds
+  useEffect(() => {
+    if (!error) return;
+    const timer = window.setTimeout(() => setError(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [error]);
 
   const nights =
     checkIn && checkOut
@@ -138,15 +197,30 @@ export function BookingPage() {
   const extraTotal = extraGuests * EXTRA_GUEST_CHARGE * nights;
   const totalAmount = roomTotal + extraTotal;
   const advance = Math.round(totalAmount * 0.2);
-  const hasDateConflict = !!homestay?.blockedDates?.some((d) => d >= checkIn && d < checkOut);
+
+  const selectedNights = nightsBetween(checkIn, checkOut);
+  const countedNights = selectedNights
+    .map((d) => stayAvailability[d])
+    .filter((v): v is number => typeof v === 'number');
+  const minRoomsLeft = countedNights.length > 0 ? Math.min(...countedNights) : undefined;
+  const conflictDates = selectedNights.filter(
+    (d) => stayAvailability[d] === 0 || !!homestay?.blockedDates?.includes(d),
+  );
+  const hasDateConflict = conflictDates.length > 0;
 
   function next() {
+    if (step === 0 && !availabilityListed) {
+      setError("This stay isn't accepting bookings yet — the host hasn't published room availability.");
+      return;
+    }
     if (step === 0 && (!checkIn || !checkOut)) {
       setError('Pick your check-in and check-out dates.');
       return;
     }
     if (step === 0 && hasDateConflict) {
-      setError('Those dates are locked for this stay. Choose alternate dates.');
+      setError(
+        `${formatDateList(conflictDates)} ${conflictDates.length === 1 ? 'has' : 'have'} no rooms left. Please select other dates.`,
+      );
       return;
     }
     if (step === 1 && (!name.trim() || phone.trim().length < 7)) {
@@ -386,16 +460,47 @@ export function BookingPage() {
                 >
                   {step === 0 ? (
                     <div className="space-y-5">
+                      {!availabilityListed ? (
+                        <div className="flex items-start gap-2.5 rounded-2xl border border-warn/30 bg-warn/5 p-4">
+                          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
+                          <div className="space-y-1 text-xs">
+                            <p className="font-semibold text-ink">Availability not published</p>
+                            <p className="text-ink-2">
+                              The host hasn't listed room availability for this stay yet. Please check back soon or explore other
+                              stays.
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
                       <DateRangePicker
                         checkIn={checkIn}
                         checkOut={checkOut}
                         availability={stayAvailability}
-                        fewLeftThreshold={0}
+                        fewLeftThreshold={3}
                         onChange={(ci, co) => {
                           setCheckIn(ci);
                           setCheckOut(co);
+                          setError(null);
                         }}
                       />
+
+                      {minRoomsLeft !== undefined && minRoomsLeft > 0 && nights > 0 ? (
+                        <p className="flex items-center gap-2 text-xs font-semibold text-tide">
+                          <Check className="h-4 w-4 shrink-0" />
+                          {minRoomsLeft} room{minRoomsLeft === 1 ? '' : 's'} left for your selected dates
+                        </p>
+                      ) : null}
+
+                      {conflictDates.length > 0 ? (
+                        <div className="flex items-start gap-2 rounded-xl border border-err/30 bg-err/10 p-3 text-xs font-medium text-err">
+                          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                          <span>
+                            {formatDateList(conflictDates)} {conflictDates.length === 1 ? 'is fully booked' : 'are fully booked'} — no
+                            rooms left on {conflictDates.length === 1 ? 'that night' : 'those nights'}. Please select other dates.
+                          </span>
+                        </div>
+                      ) : null}
 
                       <div className="flex items-center justify-between rounded-xl border border-line-2 bg-paper-2 px-4 py-3">
                         <span className="flex items-center gap-2 text-sm font-semibold text-ink">
@@ -433,28 +538,28 @@ export function BookingPage() {
                           </button>
                         </div>
                       </div>
+                        </>
+                      )}
 
-                      {error ? (
-                        <p className="flex items-center gap-2 text-xs font-semibold text-err">
-                          <AlertCircle className="h-4 w-4 shrink-0" />
-                          {error}
-                        </p>
-                      ) : null}
+                      <AnimatePresence>
+                        {error ? <FlashMessage message={error} onDismiss={() => setError(null)} /> : null}
+                      </AnimatePresence>
                     </div>
                   ) : step === 1 ? (
                     <div className="space-y-4">
+                      <div className="flex items-start gap-2 rounded-xl border border-line bg-paper-2 p-3 text-[11px] text-ink-2">
+                        <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-tide" />
+                        <span>Booked with your Coastal Trails account — this reservation is linked to your profile so it appears in your bookings only.</span>
+                      </div>
                       <Field label="Guest full name">
-                        <Input placeholder="e.g. Maya Varma" value={name} onChange={(e) => setName(e.target.value)} />
+                        <Input placeholder="e.g. Maya Varma" value={name} onChange={(e) => setName(e.target.value)} readOnly />
                       </Field>
                       <Field label="WhatsApp contact">
-                        <Input type="tel" placeholder="+91 98765 43210" value={phone} onChange={(e) => setPhone(e.target.value)} />
+                        <Input type="tel" placeholder="+91 98765 43210" value={phone} onChange={(e) => setPhone(e.target.value)} readOnly />
                       </Field>
-                      {error ? (
-                        <p className="flex items-center gap-2 text-xs font-semibold text-err">
-                          <AlertCircle className="h-4 w-4 shrink-0" />
-                          {error}
-                        </p>
-                      ) : null}
+                      <AnimatePresence>
+                        {error ? <FlashMessage message={error} onDismiss={() => setError(null)} /> : null}
+                      </AnimatePresence>
                     </div>
                   ) : (
                     <div className="space-y-4">
@@ -508,12 +613,9 @@ export function BookingPage() {
                         </div>
                       </div>
 
-                      {error ? (
-                        <p className="flex items-center gap-2 text-xs font-semibold text-err">
-                          <AlertCircle className="h-4 w-4 shrink-0" />
-                          {error}
-                        </p>
-                      ) : null}
+                      <AnimatePresence>
+                        {error ? <FlashMessage message={error} onDismiss={() => setError(null)} /> : null}
+                      </AnimatePresence>
 
                       <MagneticButton className="w-full">
                         <Button onClick={submit} disabled={submitting} className="w-full py-4 text-sm font-semibold">
@@ -540,10 +642,17 @@ export function BookingPage() {
                     <ArrowLeft className="h-3.5 w-3.5" />
                     Back
                   </button>
-                  <Button onClick={next} size="sm" className="gap-1.5">
-                    Continue
-                    <ArrowRight className="h-3.5 w-3.5" />
-                  </Button>
+                  {step === 0 && !availabilityListed ? (
+                    <Button onClick={() => navigate('/')} size="sm" className="gap-1.5">
+                      Explore other stays
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Button>
+                  ) : (
+                    <Button onClick={next} size="sm" className="gap-1.5">
+                      Continue
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </div>
               ) : null}
             </div>

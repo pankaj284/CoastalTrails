@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'motion/react';
-import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, CheckCircle2, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import { easeOut } from '../../lib/motion';
 
@@ -142,19 +142,38 @@ export function DateRangePicker({ checkIn, checkOut, onChange, availability, few
     return cells;
   }, [month]);
 
+  const checkoutCandidate = !!checkIn && !checkOut;
+
   function handleDayClick(iso: string) {
-    if (!checkIn || checkOut) {
-      onChange(iso, '');
-    } else if (iso === checkIn) {
-      onChange(iso, '');
-    } else {
+    const soldOut = availability?.[iso] === 0;
+    // A sold-out night can still be a valid check-out day (you leave that morning),
+    // but it can never start a stay.
+    const isCheckoutPick = checkoutCandidate && iso > checkIn;
+    if (soldOut && !isCheckoutPick) return;
+    if (isCheckoutPick) {
       onChange(checkIn, iso);
+    } else {
+      // First pick, re-pick, or an earlier day — always start a fresh range
+      onChange(iso, '');
     }
   }
 
   const monthLabel = month.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
-  const valueText =
-    checkIn && checkOut ? `${fmtShort(checkIn)} – ${fmtShort(checkOut)}` : checkIn ? `${fmtShort(checkIn)} → Add check-out` : '';
+
+  const selectedNightsList = useMemo(() => {
+    const ci = parseISO(checkIn);
+    const co = parseISO(checkOut);
+    if (!ci || !co) return [];
+    const out: string[] = [];
+    for (const d = new Date(ci); d < co; d.setDate(d.getDate() + 1)) out.push(toISO(d));
+    return out;
+  }, [checkIn, checkOut]);
+
+  const selectedRoomCounts = selectedNightsList
+    .map((d) => availability?.[d])
+    .filter((v): v is number => typeof v === 'number');
+  const minSelectedRooms = selectedRoomCounts.length > 0 ? Math.min(...selectedRoomCounts) : undefined;
+  const soldOutNights = selectedNightsList.filter((d) => availability?.[d] === 0);
 
   return (
     <div ref={rootRef} className={cn('relative', className)}>
@@ -165,16 +184,25 @@ export function DateRangePicker({ checkIn, checkOut, onChange, availability, few
         aria-label="Choose dates"
         aria-expanded={open}
         className={cn(
-          'w-full rounded-xl border px-3.5 py-2 text-left transition-all',
+          'flex w-full items-stretch overflow-hidden rounded-xl border text-left transition-all',
           open ? 'border-tide bg-elevated ring-2 ring-tide/20' : 'border-line-2 bg-elevated hover:border-tide',
         )}
       >
-        <span className="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-ink-3">
-          <Calendar className="h-3 w-3 text-tide" />
-          <span>Dates</span>
+        <span className="flex flex-1 flex-col px-3.5 py-2">
+          <span className="flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-wider text-ink-3">
+            <Calendar className="h-3 w-3 text-tide" />
+            <span>Check-in</span>
+          </span>
+          <span className={cn('mt-0.5 block text-sm font-medium', checkIn ? 'text-ink' : 'text-ink-3')}>
+            {checkIn ? fmtShort(checkIn) : 'Add date'}
+          </span>
         </span>
-        <span className={cn('mt-0.5 block text-sm font-medium', valueText ? 'text-ink' : 'text-ink-3')}>
-          {valueText || 'Add check-in · check-out'}
+        <span className="w-px shrink-0 self-stretch bg-line" aria-hidden="true" />
+        <span className="flex flex-1 flex-col px-3.5 py-2">
+          <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-ink-3">Check-out</span>
+          <span className={cn('mt-0.5 block text-sm font-medium', checkOut ? 'text-ink' : 'text-ink-3')}>
+            {checkOut ? fmtShort(checkOut) : 'Add date'}
+          </span>
         </span>
       </button>
 
@@ -256,25 +284,28 @@ export function DateRangePicker({ checkIn, checkOut, onChange, availability, few
                   const count = availability ? availability[iso] : undefined;
                   const unavailable = count === 0;
                   const fewLeft = count !== undefined && count > 0 && count <= fewLeftThreshold;
+                  const soldOutCheckout = unavailable && checkoutCandidate && iso > checkIn;
                   return (
                     <button
                       key={iso}
                       type="button"
-                      disabled={isPast || unavailable}
+                      disabled={isPast || (unavailable && !soldOutCheckout)}
                       onClick={() => handleDayClick(iso)}
                       title={
-                        unavailable
-                          ? 'Reserved'
-                          : isPast
-                            ? 'Past date'
-                            : fewLeft
+                        isPast
+                          ? 'Past date'
+                          : unavailable
+                            ? soldOutCheckout
+                              ? 'No rooms this night — can still be your check-out'
+                              : 'Reserved'
+                            : count !== undefined && count > 0
                               ? `${count} room${count === 1 ? '' : 's'} left`
                               : undefined
                       }
                       className={cn(
                         'relative mx-auto flex h-9 w-9 items-center justify-center rounded-full font-display text-sm transition-all duration-micro',
                         isPast && !unavailable && 'cursor-not-allowed text-ink-3/30',
-                        unavailable && 'cursor-not-allowed text-ink-3/60',
+                        unavailable && !soldOutCheckout && 'cursor-not-allowed text-ink-3/60',
                         !isPast && !unavailable && !isCheckIn && !isCheckOut && !inRange && 'text-ink hover:bg-paper-2',
                         isToday && !isCheckIn && !isCheckOut && 'ring-1 ring-inset ring-tide',
                         inRange && 'bg-tide-glow/15 text-tide',
@@ -310,6 +341,22 @@ export function DateRangePicker({ checkIn, checkOut, onChange, availability, few
                     ))}
                   </div>
                 </div>
+
+                {checkIn && checkOut && availability ? (
+                  soldOutNights.length > 0 ? (
+                    <p className="flex items-start gap-1.5 font-mono text-[10px] font-bold text-err">
+                      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        No rooms left on {soldOutNights.map((d) => fmtShort(d)).join(', ')} — pick other dates
+                      </span>
+                    </p>
+                  ) : minSelectedRooms !== undefined ? (
+                    <p className="flex items-center gap-1.5 font-mono text-[10px] font-bold text-ok">
+                      <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                      {minSelectedRooms} room{minSelectedRooms === 1 ? '' : 's'} left for your selected dates
+                    </p>
+                  ) : null
+                ) : null}
                 {availability ? (
                   <div className="flex items-center gap-4 font-mono text-[10px] text-ink-3">
                     <span className="flex items-center gap-1.5">

@@ -1,0 +1,99 @@
+import { all, get, run } from './index.js';
+
+// Local (not UTC) YYYY-MM-DD so validation matches the browser's date picker
+export function localTodayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Local MySQL DATETIME string ('YYYY-MM-DD HH:MM:SS') for NOW() comparisons
+export function localDateTime(ms) {
+  const d = new Date(ms);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+export function isoDate(value) {
+  return String(value ?? '').slice(0, 10);
+}
+
+// Every date in [from, to) — checkout day itself is free for the next guest
+export function eachNight(from, to) {
+  const dates = [];
+  const start = new Date(`${isoDate(from)}T00:00:00`);
+  const end = new Date(`${isoDate(to)}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return dates;
+  for (const d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
+    dates.push(
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    );
+  }
+  return dates;
+}
+
+// Pending holds past their expiry stop blocking rooms automatically.
+export async function expireStaleHolds() {
+  const result = await run(
+    `UPDATE bookings
+     SET status = 'cancelled'
+     WHERE status = 'awaiting_host' AND hold_expires_at IS NOT NULL AND hold_expires_at < NOW()`
+  );
+  return result.changes;
+}
+
+// Rooms left per night for one homestay.
+// A room_unavailability row (host hold / maintenance) blocks the whole property that night;
+// each active booking (confirmed, or awaiting host within its hold window) occupies one room.
+export async function getRoomsLeftMap(homestayId, from, to) {
+  const stay = await get('SELECT id, total_rooms, availability_listed FROM homestays WHERE id = ?', [homestayId]);
+  if (!stay) return null;
+
+  const dates = eachNight(from, to);
+  const roomsLeft = {};
+  for (const d of dates) roomsLeft[d] = stay.total_rooms;
+
+  const hostBlocks = await all(
+    'SELECT blocked_date FROM room_unavailability WHERE homestay_id = ? AND blocked_date >= ? AND blocked_date < ?',
+    [homestayId, isoDate(from), isoDate(to)]
+  );
+  const fullyBlocked = new Set(hostBlocks.map((b) => isoDate(b.blocked_date)));
+
+  const activeBookings = await all(
+    `SELECT check_in, check_out, status, hold_expires_at FROM bookings
+     WHERE homestay_id = ?
+       AND status IN ('awaiting_host', 'confirmed')
+       AND (status = 'confirmed' OR hold_expires_at IS NULL OR hold_expires_at > NOW())
+       AND check_in < ? AND check_out > ?`,
+    [homestayId, isoDate(to), isoDate(from)]
+  );
+
+  for (const b of activeBookings) {
+    for (const d of eachNight(b.check_in, b.check_out)) {
+      if (roomsLeft[d] !== undefined) roomsLeft[d] = Math.max(0, roomsLeft[d] - 1);
+    }
+  }
+
+  for (const d of fullyBlocked) {
+    if (roomsLeft[d] !== undefined) roomsLeft[d] = 0;
+  }
+
+  return { total_rooms: stay.total_rooms, listed: !!stay.availability_listed, dates: roomsLeft };
+}
+
+// Rooms left per night across every published homestay (used by the explore date picker)
+export async function getAggregateRoomsLeft(from, to) {
+  const stays = await all('SELECT id FROM homestays WHERE availability_listed = 1');
+  const dates = eachNight(from, to);
+  const totals = {};
+  for (const d of dates) totals[d] = 0;
+
+  let totalRooms = 0;
+  for (const s of stays) {
+    const map = await getRoomsLeftMap(s.id, from, to);
+    if (!map) continue;
+    totalRooms += map.total_rooms;
+    for (const d of dates) totals[d] += map.dates[d] ?? 0;
+  }
+
+  return { total: totalRooms, dates: totals };
+}

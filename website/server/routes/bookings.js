@@ -1,7 +1,16 @@
 import express from 'express';
 import { all, get, run } from '../db/index.js';
+import { expireStaleHolds, getRoomsLeftMap, eachNight, localTodayISO, localDateTime } from '../db/availability.js';
 
 const router = express.Router();
+
+const HOLD_HOURS = 24;
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function prettyDate(iso) {
+  const [y, m, d] = String(iso).split('-').map(Number);
+  return m >= 1 && m <= 12 ? `${d} ${MONTHS[m - 1]} ${y}` : iso;
+}
 
 // Helper to generate readable Gokarna booking reference like GK-839201
 function generateRefCode() {
@@ -12,6 +21,7 @@ function generateRefCode() {
 // GET /api/bookings - List all bookings
 router.get('/', async (req, res) => {
   try {
+    await expireStaleHolds();
     const { phone } = req.query;
     let query = `
       SELECT b.*, h.title as homestay_title, h.location_display, h.host_name, h.host_whatsapp
@@ -67,21 +77,39 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Missing required booking details' });
     }
 
+    // Reject malformed or past dates — today is the earliest possible check-in
+    const isoPattern = /^\d{4}-\d{2}-\d{2}$/;
+    if (!isoPattern.test(check_in) || !isoPattern.test(check_out)) {
+      return res.status(400).json({ error: 'Dates must use the YYYY-MM-DD format' });
+    }
+    const today = localTodayISO();
+    if (check_in < today) {
+      return res.status(400).json({ error: 'Check-in cannot be in the past. Pick today or a future date.' });
+    }
+    if (check_out <= check_in) {
+      return res.status(400).json({ error: 'Check-out must be after check-in (minimum one night).' });
+    }
+
     const homestay = await get('SELECT * FROM homestays WHERE id = ?', [homestay_id]);
     if (!homestay) {
       return res.status(404).json({ error: 'Homestay does not exist' });
     }
 
-    // Check date availability
-    const blockedDates = await all(
-      'SELECT blocked_date FROM room_unavailability WHERE homestay_id = ? AND blocked_date >= ? AND blocked_date < ?',
-      [homestay_id, check_in, check_out]
-    );
-
-    if (blockedDates.length > 0) {
+    if (!homestay.availability_listed) {
       return res.status(409).json({
-        error: 'Property is not available for the selected dates',
-        conflicts: blockedDates.map(b => b.blocked_date)
+        error: "This stay isn't accepting bookings yet — the host hasn't published room availability.",
+      });
+    }
+
+    // Live availability: stale holds expire first, then count rooms left per night
+    await expireStaleHolds();
+    const availability = await getRoomsLeftMap(homestay_id, check_in, check_out);
+    const soldOutDates = eachNight(check_in, check_out).filter((d) => (availability.dates[d] ?? 0) <= 0);
+
+    if (soldOutDates.length > 0) {
+      return res.status(409).json({
+        error: `No rooms left on ${soldOutDates.map(prettyDate).join(', ')}. Please select other dates.`,
+        conflicts: soldOutDates,
       });
     }
 
@@ -100,7 +128,8 @@ router.post('/', async (req, res) => {
 
     const id = `bk-${Date.now()}`;
     const reference_code = generateRefCode();
-    const hold_expires_at = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 mins hold
+    // Unconfirmed holds release the rooms automatically after 24 hours
+    const hold_expires_at = localDateTime(Date.now() + HOLD_HOURS * 60 * 60 * 1000);
 
     await run(
       `INSERT INTO bookings 
@@ -122,17 +151,7 @@ router.post('/', async (req, res) => {
       ]
     );
 
-    // Block the dates in room_unavailability
-    const cur = new Date(start);
-    while (cur < end) {
-      const dateStr = cur.toISOString().split('T')[0];
-      await run('INSERT OR IGNORE INTO room_unavailability (homestay_id, blocked_date, reason) VALUES (?, ?, ?)', [
-        homestay_id,
-        dateStr,
-        `booking:${reference_code}`
-      ]);
-      cur.setDate(cur.getDate() + 1);
-    }
+    // Availability is computed live from active bookings, so no static date rows are written.
 
     // Generate pre-filled WhatsApp link for direct host pinging
     const hostWhatsAppDigits = homestay.host_whatsapp.replace(/\D/g, '');
@@ -171,17 +190,6 @@ router.patch('/:id/status', async (req, res) => {
     }
 
     await run('UPDATE bookings SET status = ? WHERE id = ? OR reference_code = ?', [status, req.params.id, req.params.id]);
-
-    // If declined or cancelled, release blocked dates
-    if (status === 'declined' || status === 'cancelled') {
-      const booking = await get('SELECT * FROM bookings WHERE id = ? OR reference_code = ?', [req.params.id, req.params.id]);
-      if (booking) {
-        await run('DELETE FROM room_unavailability WHERE homestay_id = ? AND reason = ?', [
-          booking.homestay_id,
-          `booking:${booking.reference_code}`
-        ]);
-      }
-    }
 
     const updated = await get('SELECT * FROM bookings WHERE id = ? OR reference_code = ?', [req.params.id, req.params.id]);
     res.json(updated);

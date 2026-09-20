@@ -17,7 +17,7 @@ import {
   Moon,
 } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
-import type { Booking } from '../types';
+import type { Booking, User } from '../types';
 import { api } from '../services/api';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
@@ -28,11 +28,10 @@ import { Tabs } from '../components/ui/Tabs';
 import { cn } from '../lib/cn';
 
 interface ReservationStatusPageProps {
+  currentUser: User | null;
   initialRefCode?: string;
   onExploreStays?: () => void;
 }
-
-const DEMO_REFS = ['GK-782941', 'GK-913482', 'GK-654127'];
 
 function useCountdown(target?: string) {
   const [left, setLeft] = useState('');
@@ -73,7 +72,7 @@ function StatusPill({ status }: { status: Booking['status'] }) {
   );
 }
 
-export function ReservationStatusPage({ initialRefCode: propRefCode = '', onExploreStays }: ReservationStatusPageProps) {
+export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode = '', onExploreStays }: ReservationStatusPageProps) {
   const { refCode: urlRefCode } = useParams<{ refCode?: string }>();
   const navigate = useNavigate();
   const activeInitialCode = urlRefCode || propRefCode;
@@ -87,9 +86,14 @@ export function ReservationStatusPage({ initialRefCode: propRefCode = '', onExpl
   const [statusFilter, setStatusFilter] = useState<'all' | 'confirmed' | 'awaiting_host'>('all');
 
   const fetchBookings = async () => {
+    if (!currentUser) {
+      setAllBookings([]);
+      setMatchingBookings([]);
+      return;
+    }
     try {
       setLoading(true);
-      const data = await api.getBookings();
+      const data = await api.getBookings(currentUser.phone);
       setAllBookings(data);
       if (searchQuery.trim()) {
         filterResults(searchQuery.trim(), data);
@@ -110,7 +114,7 @@ export function ReservationStatusPage({ initialRefCode: propRefCode = '', onExpl
   useEffect(() => {
     fetchBookings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [urlRefCode]);
+  }, [urlRefCode, currentUser?.phone]);
 
   const handleExplore = () => {
     if (onExploreStays) onExploreStays();
@@ -435,7 +439,13 @@ export function ReservationStatusPage({ initialRefCode: propRefCode = '', onExpl
         <p className="overline">Reservation desk</p>
         <h1 className="font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl">Your bookings</h1>
         <p className="text-sm text-ink-2">
-          Verify your 20% commitment hold, watch host approval, and open any reservation for the full voucher.
+          {currentUser ? (
+            <>
+              Signed in as <span className="font-semibold text-ink">{currentUser.name}</span> — only your own reservations appear here.
+            </>
+          ) : (
+            'Verify your 20% commitment hold, watch host approval, and open any reservation for the full voucher.'
+          )}
         </p>
       </div>
 
@@ -449,29 +459,13 @@ export function ReservationStatusPage({ initialRefCode: propRefCode = '', onExpl
               setSearchQuery(e.target.value);
               filterResults(e.target.value);
             }}
-            placeholder="Booking reference (e.g. GK-782941) or WhatsApp number"
+            placeholder="Search your bookings by reference (e.g. GK-782941)"
             aria-label="Search bookings"
             className="w-full bg-transparent px-3.5 py-2 text-sm font-medium text-ink placeholder:text-ink-3 focus:outline-none"
           />
           <Button type="submit" size="sm" className="shrink-0">
             Search
           </Button>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-          <span className="font-mono text-[10px] uppercase tracking-wider text-ink-3">Try demo refs:</span>
-          {DEMO_REFS.map((ref) => (
-            <button
-              key={ref}
-              type="button"
-              onClick={() => {
-                setSearchQuery(ref);
-                filterResults(ref);
-              }}
-              className="rounded-full border border-line-2 px-2.5 py-1 font-mono text-[10px] font-semibold text-ink-2 transition-colors hover:border-tide hover:text-tide"
-            >
-              {ref}
-            </button>
-          ))}
         </div>
       </form>
 
@@ -517,7 +511,16 @@ export function ReservationStatusPage({ initialRefCode: propRefCode = '', onExpl
           icon={<AlertCircle className="h-6 w-6" />}
           overline="No results"
           title="No reservation located"
-          description={`We couldn't find a booking for "${searchQuery}". Check the reference code or registered phone number.`}
+          description={`We couldn't find a booking for "${searchQuery}" in your account. Check the reference code and try again.`}
+          action={{ label: 'Explore sanctuaries', onClick: handleExplore }}
+          className="mx-auto max-w-xl"
+        />
+      ) : !hasSearched && allBookings.length === 0 ? (
+        <EmptyState
+          icon={<Waves className="h-6 w-6" />}
+          overline="No bookings yet"
+          title="Your reservations will appear here"
+          description="You haven't booked a stay yet. Explore our family-stewarded sanctuaries and secure your first 20% hold."
           action={{ label: 'Explore sanctuaries', onClick: handleExplore }}
           className="mx-auto max-w-xl"
         />
