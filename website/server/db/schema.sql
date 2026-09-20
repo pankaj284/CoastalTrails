@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS homestay_images (
     homestay_id TEXT NOT NULL,
     image_url TEXT NOT NULL,
     sort_order INTEGER DEFAULT 0,
+    category TEXT DEFAULT 'general',
     FOREIGN KEY (homestay_id) REFERENCES homestays(id) ON DELETE CASCADE
 );
 
@@ -67,6 +68,42 @@ CREATE TABLE IF NOT EXISTS room_unavailability (
     UNIQUE(homestay_id, blocked_date)
 );
 
+-- 6b. Per-Room Status Overrides (admin control center)
+CREATE TABLE IF NOT EXISTS room_status (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    homestay_id TEXT NOT NULL,
+    room_number INTEGER NOT NULL,
+    date TEXT NOT NULL, -- YYYY-MM-DD
+    status TEXT NOT NULL DEFAULT 'available', -- 'available', 'maintenance', 'blocked'
+    reason TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (homestay_id) REFERENCES homestays(id) ON DELETE CASCADE,
+    UNIQUE(homestay_id, room_number, date)
+);
+
+-- 6c. Per-Room State (housekeeping, bed setup, capacity, photo)
+CREATE TABLE IF NOT EXISTS room_state (
+    homestay_id TEXT NOT NULL,
+    room_number INTEGER NOT NULL,
+    name TEXT,
+    bed_type TEXT DEFAULT 'King Bed',
+    capacity INTEGER DEFAULT 2,
+    housekeeping TEXT DEFAULT 'clean', -- 'clean', 'dirty', 'inspecting'
+    photo TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (homestay_id, room_number),
+    FOREIGN KEY (homestay_id) REFERENCES homestays(id) ON DELETE CASCADE
+);
+
+-- 6d. Stay-Level Settings (min stay, festival price override)
+CREATE TABLE IF NOT EXISTS stay_settings (
+    homestay_id TEXT PRIMARY KEY,
+    min_stay INTEGER DEFAULT 1,
+    price_override REAL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (homestay_id) REFERENCES homestays(id) ON DELETE CASCADE
+);
+
 -- 7. Bookings Table (Shared with 20% Advance / 80% Check-in Model)
 CREATE TABLE IF NOT EXISTS bookings (
     id TEXT PRIMARY KEY,
@@ -87,8 +124,7 @@ CREATE TABLE IF NOT EXISTS bookings (
 );
 
 -- 8. Transit Routes (For Figma Screen 3 Navigator)
-CREATE TABLE IF NOT EXISTS transit_routes (
-    id TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS transit_routes (    id TEXT PRIMARY KEY,
     start_point TEXT NOT NULL,
     start_subtext TEXT NOT NULL,
     destination TEXT NOT NULL,
@@ -99,4 +135,10 @@ CREATE TABLE IF NOT EXISTS transit_routes (
     car_mins INTEGER NOT NULL,
     bus_mins INTEGER NOT NULL,
     active_mode TEXT DEFAULT 'scooter'
+);
+
+CREATE TABLE IF NOT EXISTS enclaves (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    sort_order INTEGER DEFAULT 0
 );

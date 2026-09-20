@@ -30,8 +30,23 @@ export function initDatabase() {
         console.error('Error applying schema:', err.message);
         reject(err);
       } else {
-        console.log('Database schema successfully verified/initialized.');
-        resolve();
+        db.run(`ALTER TABLE homestay_images ADD COLUMN category TEXT DEFAULT 'general'`, (alterErr) => {
+          if (alterErr && !String(alterErr.message).includes('duplicate column')) {
+            console.error('Migration warning:', alterErr.message);
+          }
+          db.run(`ALTER TABLE bookings ADD COLUMN channel TEXT DEFAULT 'Direct website'`, (chanErr) => {
+            if (chanErr && !String(chanErr.message).includes('duplicate column')) {
+              console.error('Migration warning:', chanErr.message);
+            }
+            db.run(`ALTER TABLE room_status ADD COLUMN reason TEXT`, (rsErr) => {
+              if (rsErr && !String(rsErr.message).includes('duplicate column')) {
+                console.error('Migration warning:', rsErr.message);
+              }
+              console.log('Database schema successfully verified/initialized.');
+              resolve();
+            });
+          });
+        });
       }
     });
   });

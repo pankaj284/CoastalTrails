@@ -1,7 +1,13 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { initDatabase } from './db/index.js';
 import homestaysRouter from './routes/homestays.js';
+import ownerRouter from './routes/owner.js';
+import adminRouter from './routes/admin.js';
+import uploadRouter from './routes/upload.js';
+import enclavesRouter from './routes/enclaves.js';
 import bookingsRouter from './routes/bookings.js';
 import databaseRouter from './routes/database.js';
 import routesRouter from './routes/routes.js';
@@ -27,10 +33,15 @@ app.use((req, res, next) => {
 
 // Mount Routes
 app.use('/api/homestays', homestaysRouter);
+app.use('/api/owner', ownerRouter);
+app.use('/api/admin', adminRouter);
 app.use('/api/bookings', bookingsRouter);
 app.use('/api/db', databaseRouter);
 app.use('/api/routes', routesRouter);
 app.use('/api/telemetry', telemetryRouter);
+app.use('/api', uploadRouter);
+app.use('/api/enclaves', enclavesRouter);
+app.use('/uploads', express.static(path.join(path.dirname(fileURLToPath(import.meta.url)), 'uploads')));
 
 // Health check
 app.get('/api/health', (req, res) => {

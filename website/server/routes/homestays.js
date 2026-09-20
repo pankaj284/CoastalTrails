@@ -5,12 +5,13 @@ const router = express.Router();
 
 // Helper to attach child collections (images, amenities, badges, blocked_dates)
 async function attachDetails(stay, checkIn, checkOut) {
-  const images = await all('SELECT image_url FROM homestay_images WHERE homestay_id = ? ORDER BY sort_order ASC', [stay.id]);
+  const images = await all('SELECT image_url, category FROM homestay_images WHERE homestay_id = ? ORDER BY sort_order ASC', [stay.id]);
   const amenities = await all('SELECT amenity FROM homestay_amenities WHERE homestay_id = ?', [stay.id]);
   const badges = await all('SELECT badge FROM homestay_badges WHERE homestay_id = ?', [stay.id]);
   const blockedDates = await all('SELECT blocked_date, reason FROM room_unavailability WHERE homestay_id = ?', [stay.id]);
 
   stay.imageUrls = images.map(r => r.image_url);
+  stay.imageCategories = images.map(r => r.category);
   stay.amenities = amenities.map(r => r.amenity);
   stay.verifiedBadges = badges.map(r => r.badge);
   stay.blockedDates = blockedDates.map(r => r.blocked_date);
@@ -160,7 +161,10 @@ router.post('/', async (req, res) => {
 
     // Images
     for (let i = 0; i < images.length; i++) {
-      await run('INSERT INTO homestay_images (homestay_id, image_url, sort_order) VALUES (?, ?, ?)', [id, images[i], i]);
+      const img = images[i];
+      const url = typeof img === 'string' ? img : img.url;
+      const category = typeof img === 'string' ? 'general' : img.category || 'general';
+      await run('INSERT INTO homestay_images (homestay_id, image_url, sort_order, category) VALUES (?, ?, ?, ?)', [id, url, i, category]);
     }
     // Amenities
     for (const a of amenities) {
@@ -211,6 +215,13 @@ router.put('/:id', async (req, res) => {
       [title, subtitle, location, location_display, price_per_night, host_name, host_whatsapp, walking_minutes_to_beach, total_rooms, description, id]
     );
 
+    if (Array.isArray(req.body.amenities)) {
+      await run('DELETE FROM homestay_amenities WHERE homestay_id = ?', [id]);
+      for (const a of req.body.amenities) {
+        await run('INSERT INTO homestay_amenities (homestay_id, amenity) VALUES (?, ?)', [id, a]);
+      }
+    }
+
     const updated = await get('SELECT * FROM homestays WHERE id = ?', [id]);
     res.json(await attachDetails(updated));
   } catch (err) {
@@ -234,6 +245,18 @@ router.post('/:id/block-date', async (req, res) => {
     const { date, reason = 'host_hold' } = req.body;
     if (!date) return res.status(400).json({ error: 'Date is required (YYYY-MM-DD)' });
     await run('INSERT OR IGNORE INTO room_unavailability (homestay_id, blocked_date, reason) VALUES (?, ?, ?)', [req.params.id, date, reason]);
+    res.json({ success: true, homestay_id: req.params.id, blocked_date: date });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/homestays/:id/block-date
+router.delete('/:id/block-date', async (req, res) => {
+  try {
+    const { date } = req.body;
+    if (!date) return res.status(400).json({ error: 'Date is required (YYYY-MM-DD)' });
+    await run('DELETE FROM room_unavailability WHERE homestay_id = ? AND blocked_date = ?', [req.params.id, date]);
     res.json({ success: true, homestay_id: req.params.id, blocked_date: date });
   } catch (err) {
     res.status(500).json({ error: err.message });
