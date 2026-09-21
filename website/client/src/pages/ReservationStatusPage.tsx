@@ -28,6 +28,7 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { Reveal } from '../components/ui/Reveal';
 import { Tabs } from '../components/ui/Tabs';
 import { cn } from '../lib/cn';
+import { useLiveRefresh } from '../lib/live';
 
 interface ReservationStatusPageProps {
   currentUser: User | null;
@@ -112,14 +113,14 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
   const [payMethod, setPayMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
   const [payingHold, setPayingHold] = useState(false);
 
-  const fetchBookings = async () => {
+  const fetchBookings = async (silent = false) => {
     if (!currentUser) {
       setAllBookings([]);
       setMatchingBookings([]);
       return;
     }
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const data = await api.getBookings();
       setAllBookings(data);
       if (searchQuery.trim()) {
@@ -131,10 +132,15 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
           if (match) setSelectedBooking(match);
         }
       }
+      setSelectedBooking((prev) => {
+        if (!prev) return prev;
+        const fresh = data.find((b) => b.id === prev.id);
+        return fresh ?? prev;
+      });
     } catch (err) {
       console.error('Failed to load bookings', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -142,6 +148,8 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
     fetchBookings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlRefCode, currentUser?.phone]);
+
+  useLiveRefresh(() => fetchBookings(true), 15000);
 
   // Status notices dismiss themselves after a few seconds
   useEffect(() => {

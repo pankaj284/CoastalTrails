@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import type { Booking, Homestay, User } from '../types';
 import { api } from '../services/api';
+import { useLiveRefresh } from '../lib/live';
 import { DateRangePicker } from '../components/ui/DateRangePicker';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
@@ -146,6 +147,14 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
       cancelled = true;
     };
   }, [id]);
+
+  useLiveRefresh(() => {
+    if (!id) return;
+    api
+      .getHomestay(id)
+      .then((data) => setHomestay(data))
+      .catch((err) => console.error('Failed to refresh stay for booking:', err));
+  }, 20000);
 
   useEffect(() => {
     try {

@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useLiveRefresh } from '../lib/live';
 import {
   AlertCircle,
   ArrowLeft,
@@ -129,6 +130,14 @@ export function StayDetailPage({ homestay: propHomestay, currentUser = null, onB
         .finally(() => setLoading(false));
     }
   }, [id, propHomestay]);
+
+  useLiveRefresh(() => {
+    if (!id) return;
+    api
+      .getHomestay(id)
+      .then(setHomestay)
+      .catch((err) => console.error('Failed to refresh homestay details:', err));
+  }, 20000);
 
   useEffect(() => {
     if (!homestay) return;
