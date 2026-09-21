@@ -65,3 +65,4 @@ website/server/db/*.db-wal
 .codegraph/
 .omo/
 .playwright-mcp/
+Coastal-admin/.vite/
