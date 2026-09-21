@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS homestays (
     walking_minutes_to_beach INT DEFAULT 3,
     total_rooms INT DEFAULT 3,
     availability_listed TINYINT DEFAULT 0, -- 1 once the admin publishes room availability
+    status VARCHAR(16) DEFAULT 'live', -- 'live' | 'hidden' (owner portal listing state)
+    instant_booking TINYINT DEFAULT 1, -- owner portal: allow instant booking vs request-only
     description TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

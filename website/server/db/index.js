@@ -149,6 +149,14 @@ async function runMigrations() {
     );
     console.log('Migration applied: bookings payment columns added (existing paid bookings preserved).');
   }
+
+  // Owner portal listing state (Homestay-list app)
+  const [stayStatusColumns] = await pool.query("SHOW COLUMNS FROM homestays LIKE 'status'");
+  if (stayStatusColumns.length === 0) {
+    await pool.query("ALTER TABLE homestays ADD COLUMN status VARCHAR(16) DEFAULT 'live'");
+    await pool.query('ALTER TABLE homestays ADD COLUMN instant_booking TINYINT DEFAULT 1');
+    console.log('Migration applied: homestays.status + instant_booking columns added.');
+  }
 }
 
 // Create the database if missing, then apply the schema

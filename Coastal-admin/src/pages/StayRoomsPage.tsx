@@ -12,12 +12,12 @@ import {
 } from '../services/api';
 import { Button } from '../components/ui/Button';
 import { Skeleton } from '../components/ui/Skeleton';
-import { SpotlightCard } from '../components/ui/SpotlightCard';
 import { Dialog } from '../components/ui/Dialog';
+import { SearchField } from '../components/ui/Input';
 import { useLiveRefresh } from '../lib/live';
 import { cn } from '../lib/cn';
 
-const ROOM_W = 240;
+const ROOM_W = 250;
 const COL_W = 64;
 
 function toISO(d: Date): string {
@@ -43,18 +43,12 @@ function fmtMoney(n: number): string {
 }
 
 const HK_META: Record<RoomRow['housekeeping'], { label: string; icon: string; cls: string }> = {
-  clean: { label: 'Clean', icon: 'lucide:sparkles', cls: 'bg-ok/10 text-ok border-ok/30' },
-  dirty: { label: 'Dirty', icon: 'lucide:brush', cls: 'bg-ember/10 text-ember border-ember/30' },
-  inspecting: { label: 'Inspecting', icon: 'lucide:eye', cls: 'bg-warn/10 text-warn border-warn/30' },
+  clean: { label: 'Clean', icon: 'lucide:sparkles', cls: 'border-ok/40 bg-ok/10 text-ok' },
+  dirty: { label: 'Dirty', icon: 'lucide:brush', cls: 'border-warn/40 bg-warn/10 text-warn' },
+  inspecting: { label: 'Inspecting', icon: 'lucide:eye', cls: 'border-tide/40 bg-tide/10 text-tide' },
 };
 
-const NEXT_HK: Record<RoomRow['housekeeping'], RoomRow['housekeeping']> = {
-  clean: 'dirty',
-  dirty: 'inspecting',
-  inspecting: 'clean',
-};
-
-const BLOCK_REASONS = ['Maintenance', 'Private use', 'Channel sync'];
+const HK_ORDER: RoomRow['housekeeping'][] = ['clean', 'dirty', 'inspecting'];
 
 interface DragSel {
   room: number;
@@ -62,7 +56,7 @@ interface DragSel {
   end: string;
 }
 
-function Gauge({ pct, live }: { pct: number; live: boolean }) {
+function Gauge({ pct }: { pct: number }) {
   const C = 2 * Math.PI * 40;
   return (
     <div className="relative h-24 w-24 shrink-0">
@@ -73,25 +67,16 @@ function Gauge({ pct, live }: { pct: number; live: boolean }) {
           cy="48"
           r="40"
           fill="none"
-          stroke="url(#pmsGauge)"
+          stroke="var(--c-tide)"
           strokeWidth="9"
           strokeLinecap="round"
           strokeDasharray={`${C * Math.min(pct, 1)} ${C}`}
           className="transition-all duration-700"
         />
-        <defs>
-          <linearGradient id="pmsGauge" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="var(--c-tide)" />
-            <stop offset="100%" stopColor="var(--c-gold)" />
-          </linearGradient>
-        </defs>
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="font-mono-data text-xl font-semibold text-ink">{Math.round(pct * 100)}%</span>
-        <span className="flex items-center gap-1 font-mono text-[8px] uppercase tracking-wider text-ink-3">
-          <span className={cn('h-1.5 w-1.5 rounded-full', live ? 'animate-pulse bg-ok' : 'bg-ink-3')} />
-          {live ? 'live synced' : 'offline'}
-        </span>
+        <span className="font-mono text-[8px] uppercase tracking-wider text-ink-3">occupied</span>
       </div>
     </div>
   );
@@ -109,11 +94,13 @@ export default function StayRoomsPage() {
   const [drag, setDrag] = useState<DragSel | null>(null);
   const [dragModal, setDragModal] = useState<DragSel | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
-  const [walkInFor, setWalkInFor] = useState<DragSel | null>(null);
-  const [applyAllRooms, setApplyAllRooms] = useState(true);
   const [inspect, setInspect] = useState<RoomSegment | null>(null);
   const [inspectRoom, setInspectRoom] = useState<RoomRow | null>(null);
   const [extendFor, setExtendFor] = useState<RoomSegment | null>(null);
+  const [hkMenu, setHkMenu] = useState<{ room: RoomRow; x: number; y: number } | null>(null);
+  const [search, setSearch] = useState('');
+  const [walkInFor, setWalkInFor] = useState<DragSel | null>(null);
+  const [applyAllRooms, setApplyAllRooms] = useState(true);
   const gridRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragSel | null>(null);
   const stateRef = useRef({ start, days, data });
@@ -159,6 +146,35 @@ export default function StayRoomsPage() {
     });
     return s;
   }, [data]);
+
+  const searchQ = search.trim().toLowerCase();
+  const searchInfo = useMemo(() => {
+    if (!searchQ || !data) return null;
+    const matchedIds = new Set<string>();
+    let count = 0;
+    let earliest: string | null = null;
+    data.rooms.forEach((r) => {
+      r.segments.forEach((s) => {
+        if (s.type !== 'booking') return;
+        const hay = [s.guest, s.ref, s.phone, s.channel, s.id].filter(Boolean).join(' ').toLowerCase();
+        if (hay.includes(searchQ)) {
+          matchedIds.add(s.id ?? '');
+          count += 1;
+          if (!earliest || s.start < earliest) earliest = s.start;
+        }
+      });
+    });
+    return { count, earliest, matchedIds };
+  }, [data, searchQ]);
+
+  useEffect(() => {
+    if (!hkMenu) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setHkMenu(null);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [hkMenu]);
 
   function colFromX(x: number): string | null {
     const el = gridRef.current;
@@ -213,11 +229,11 @@ export default function StayRoomsPage() {
         if (next === d) break;
         d = next;
       }
-      const roomNumbers = applyAllRooms
-        ? Array.from({ length: data?.stay.total_rooms || 1 }, (_, i) => i + 1)
-        : [range.room];
       await Promise.all(
-        roomNumbers.flatMap((room) =>
+        (applyAllRooms
+          ? Array.from({ length: data?.stay.total_rooms || 1 }, (_, i) => i + 1)
+          : [range.room]
+        ).flatMap((room) =>
           dates.map((date) => api.setRoomStatus({ homestay_id: id, room_number: room, date, status, reason })),
         ),
       );
@@ -228,10 +244,11 @@ export default function StayRoomsPage() {
     }
   }
 
-  async function cycleHousekeeping(room: RoomRow) {
+  async function setHousekeeping(room: RoomRow, status: RoomRow['housekeeping']) {
     setBusy(true);
+    setHkMenu(null);
     try {
-      await api.setRoomState({ homestay_id: id, room_number: room.number, housekeeping: NEXT_HK[room.housekeeping] });
+      await api.setRoomState({ homestay_id: id, room_number: room.number, housekeeping: status });
       await load(true);
     } finally {
       setBusy(false);
@@ -276,7 +293,7 @@ export default function StayRoomsPage() {
 
   if (error || !data) {
     return (
-      <div className="rounded-2xl border border-dashed border-line-2 bg-paper-2 p-12 text-center">
+      <div className="rounded-2xl border border-line bg-paper-2 p-12 text-center">
         <p className="text-sm font-semibold text-err">{error || 'Stay not found'}</p>
         <Button className="mt-4" onClick={() => navigate('/hosts')} variant="secondary">
           Back to hosts
@@ -290,6 +307,7 @@ export default function StayRoomsPage() {
   const occupancy = total ? tonight.booked / total : 0;
   const gridWidth = ROOM_W + days * COL_W;
   const todayIdx = diffDays(start, today);
+  const tonightRate = data.settings.price_override ?? data.stay.price_per_night;
   const turnovers = new Map<number, Set<string>>();
   data.rooms.forEach((r) => {
     const set = new Set<string>();
@@ -311,84 +329,97 @@ export default function StayRoomsPage() {
 
   return (
     <div className="w-full space-y-4">
-      <button
-        onClick={() => navigate('/hosts')}
-        className="flex items-center gap-1.5 text-xs font-semibold text-ink-2 transition-colors hover:text-tide"
-      >
-        <Icon icon="lucide:arrow-left" className="h-3.5 w-3.5" />
-        Hosts <span className="text-ink-3">/</span> {data.stay.host_name}
-      </button>
-
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <p className="overline">Room control center</p>
-          <h1 className="mt-1 truncate font-display text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-            {data.stay.title}
-          </h1>
+          <button
+            onClick={() => navigate('/hosts')}
+            className="flex items-center gap-1.5 font-mono text-[11px] font-semibold text-ink-3 transition-colors hover:text-tide"
+          >
+            <Icon icon="lucide:arrow-left" className="h-3.5 w-3.5" />
+            Hosts <span className="text-ink-3">/</span> {data.stay.host_name} <span className="text-ink-3">/</span> Room control center
+          </button>
+          <div className="mt-2 flex flex-wrap items-center gap-2.5">
+            <h1 className="truncate font-display text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+              {data.stay.title}
+            </h1>
+            <span className="flex items-center gap-1.5 rounded-full border border-ok/40 bg-ok/10 px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-wider text-ok">
+              <span className="h-1.5 w-1.5 rounded-full bg-ok" />
+              Active listing
+            </span>
+          </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant="secondary" onClick={() => setRulesOpen(true)} className="gap-1.5">
             <Icon icon="lucide:settings-2" className="h-3.5 w-3.5" />
             Stay rules
           </Button>
-          <Button size="sm" variant="secondary" onClick={() => setDragModal({ room: 1, start: today, end: today })} className="gap-1.5">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => setDragModal({ room: 1, start: today, end: today })}
+            className="gap-1.5"
+          >
             <Icon icon="lucide:calendar-x-2" className="h-3.5 w-3.5" />
             Block dates
+            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-warn/15 px-1 font-mono-data text-[9px] font-bold text-warn">
+              {tonight.blocked}
+            </span>
+          </Button>
+          <Button size="sm" onClick={() => setWalkInFor({ room: 1, start: today, end: today })} className="gap-1.5">
+            <Icon icon="lucide:plus" className="h-3.5 w-3.5" />
+            New direct booking
           </Button>
         </div>
       </div>
 
-      <SpotlightCard className="overflow-hidden rounded-2xl border border-line bg-elevated">
-        <div className="flex flex-wrap items-center gap-5 p-4 sm:p-5">
-          <Gauge pct={occupancy} live />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 font-mono text-[11px] text-ink-2">
-              <span className="flex items-center gap-1.5">
-                <Icon icon="lucide:circle-check" className="h-3.5 w-3.5 text-ok" />
-                {tonight.free} free
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Icon icon="lucide:calendar-check" className="h-3.5 w-3.5 text-tide" />
-                {tonight.booked} booked
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Icon icon="lucide:ban" className="h-3.5 w-3.5 text-err" />
-                {tonight.blocked} blocked
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Icon icon="lucide:wrench" className="h-3.5 w-3.5 text-ember" />
-                {tonight.maint} maint
-              </span>
-              <span className="ml-auto flex items-center gap-1.5 text-gold">
-                <Icon icon="lucide:indian-rupee" className="h-3.5 w-3.5" />
-                ≈ ₹{fmtMoney(tonight.booked * data.stay.price_per_night)} tonight
-              </span>
-            </div>
-            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-paper-2">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-ok via-tide to-gold transition-all duration-700"
-                style={{ width: `${occupancy * 100}%` }}
-              />
-            </div>
-            <div className="mt-2.5 flex flex-wrap items-center gap-2">
-              {(['clean', 'dirty', 'inspecting'] as const).map((k) => (
-                <span
-                  key={k}
-                  className={cn('flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[10px] font-semibold', HK_META[k].cls)}
-                >
-                  <Icon icon={HK_META[k].icon} className="h-3 w-3" />
-                  {HK_META[k].label}
-                  <span className="font-mono-data">{hk[k]}</span>
-                </span>
-              ))}
-              <span className="font-mono text-[10px] text-ink-3">
-                min-stay {data.settings.min_stay} night{data.settings.min_stay === 1 ? '' : 's'}
-                {data.settings.price_override ? ` · festival ₹${fmtMoney(data.settings.price_override)}` : ''}
-              </span>
-            </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-2xl border border-line bg-elevated p-4">
+          <div className="flex items-center justify-between">
+            <p className="font-mono text-[9px] uppercase tracking-wider text-ink-3">OTA / Channel sync</p>
+            <span className="flex items-center gap-1.5 rounded-full border border-ok/40 bg-ok/10 px-2 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-ok">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ok" />
+              Live
+            </span>
+          </div>
+          <p className="mt-2 font-mono-data text-2xl font-bold text-ink">100%</p>
+          <p className="mt-1 truncate font-mono text-[10px] text-ink-3">Syncing Airbnb · Booking.com · iCal</p>
+        </div>
+
+        <div className="rounded-2xl border border-line bg-elevated p-4">
+          <p className="font-mono text-[9px] uppercase tracking-wider text-ink-3">Real-time inventory</p>
+          <div className="mt-2 flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-tide text-white">
+              <Icon icon="lucide:bed-double" className="h-[18px] w-[18px]" />
+            </span>
+            <p className="font-mono-data text-2xl font-bold text-ink">
+              {tonight.free} <span className="text-base font-semibold text-ink-3">/ {total} free tonight</span>
+            </p>
           </div>
         </div>
-      </SpotlightCard>
+
+        <div className="rounded-2xl border border-line bg-elevated p-4">
+          <p className="font-mono text-[9px] uppercase tracking-wider text-ink-3">Housekeeping</p>
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            {(['clean', 'dirty', 'inspecting'] as const).map((k) => (
+              <span
+                key={k}
+                className={cn('flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[10px] font-semibold', HK_META[k].cls)}
+              >
+                <Icon icon={HK_META[k].icon} className="h-3 w-3" />
+                {hk[k]} {HK_META[k].label}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-line bg-elevated p-4">
+          <p className="font-mono text-[9px] uppercase tracking-wider text-ink-3">Pricing & policy</p>
+          <p className="mt-2 font-mono-data text-2xl font-bold text-ink">₹{fmtMoney(tonightRate)}</p>
+          <p className="font-mono text-[10px] text-ink-3">
+            tonight's rate · min stay {data.settings.min_stay} night{data.settings.min_stay === 1 ? '' : 's'}
+          </p>
+        </div>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-elevated p-3">
         <div className="flex items-center gap-1">
@@ -399,6 +430,12 @@ export default function StayRoomsPage() {
             <Icon icon="lucide:chevron-right" className="h-4 w-4" />
           </Button>
         </div>
+        <Button size="sm" variant="ghost" onClick={() => setStart(today)}>
+          Today
+        </Button>
+        <span className="px-1 font-mono text-[11px] font-semibold text-ink">
+          {fmtDate(start)} – {fmtDate(addDays(start, days - 1))} 2026
+        </span>
         <div className="flex items-center gap-1 rounded-full border border-line bg-paper-2 p-0.5">
           {[7, 14, 30].map((n) => (
             <button
@@ -409,33 +446,51 @@ export default function StayRoomsPage() {
               }}
               className={cn(
                 'rounded-full px-3 py-1 font-mono text-[11px] font-semibold transition-colors',
-                days === n ? 'bg-tide text-white shadow' : 'text-ink-2 hover:text-ink',
+                days === n ? 'bg-tide text-white' : 'text-ink-2 hover:text-ink',
               )}
             >
               {n}d
             </button>
           ))}
         </div>
-        <Button size="sm" variant="ghost" onClick={() => setStart(today)}>
-          Today
-        </Button>
-        <span className="hidden px-2 font-mono text-[11px] text-ink-3 sm:inline">
-          {fmtDate(start)} – {fmtDate(addDays(start, days - 1))}
-        </span>
         <div className="ml-auto flex items-center gap-3 font-mono text-[10px] text-ink-3">
+          <SearchField
+            placeholder="Search guest, ref, phone…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-48"
+          />
+          {searchInfo ? (
+            searchInfo.count > 0 ? (
+              <button
+                type="button"
+                onClick={() => searchInfo.earliest && setStart(searchInfo.earliest)}
+                className="flex items-center gap-1 rounded-full border border-tide/40 bg-tide/10 px-2.5 py-1 font-semibold text-tide transition-colors hover:bg-tide/20"
+              >
+                {searchInfo.count} match{searchInfo.count === 1 ? '' : 'es'}
+                {searchInfo.earliest && (
+                  <>
+                    <span className="text-ink-3">·</span> jump to {fmtDate(searchInfo.earliest)}
+                  </>
+                )}
+              </button>
+            ) : (
+              <span className="rounded-full border border-line bg-paper-2 px-2.5 py-1 text-ink-3">no matches</span>
+            )
+          ) : null}
           <span className="flex items-center gap-1">
             <span className="inline-block h-2.5 w-5 rounded bg-tide" />
             booked
           </span>
           <span className="flex items-center gap-1">
-            <span className="inline-block h-2.5 w-5 rounded border border-err/40 bg-[repeating-linear-gradient(45deg,var(--c-err)_0_2px,transparent_2px_5px)]" />
+            <span className="inline-block h-2.5 w-5 rounded border border-warn/40 bg-[repeating-linear-gradient(45deg,var(--c-warn)_0_2px,transparent_2px_5px)]" />
             blocked
           </span>
           <span className="flex items-center gap-1">
-            <span className="inline-block h-2.5 w-5 rounded border border-ember/40 bg-[repeating-linear-gradient(45deg,var(--c-ember)_0_2px,transparent_2px_5px)]" />
-            maint
+            <span className="inline-block h-2.5 w-5 rounded border border-err/40 bg-[repeating-linear-gradient(45deg,var(--c-err)_0_2px,transparent_2px_5px)]" />
+            maintenance
           </span>
-          <span className="hidden lg:inline">drag across days to bulk edit</span>
+          <span className="hidden lg:inline">drag to select dates</span>
         </div>
       </div>
 
@@ -455,7 +510,7 @@ export default function StayRoomsPage() {
                   <div
                     key={d.date}
                     className={cn(
-                      'flex flex-col items-center justify-center border-l border-line/60 py-1.5',
+                      'flex flex-col items-center justify-center border-l border-line py-1.5',
                       weekend && 'bg-paper-2/70',
                       isToday && 'bg-tide/10',
                     )}
@@ -484,9 +539,9 @@ export default function StayRoomsPage() {
               >
                 <div className="sticky left-0 z-20 flex items-center gap-3 border-r border-line bg-elevated px-3.5 py-2.5">
                   {room.photo ? (
-                    <img src={room.photo} alt={room.name} className="h-12 w-12 shrink-0 rounded-lg border border-line object-cover" />
+                    <img src={room.photo} alt={room.name} className="h-11 w-11 shrink-0 rounded-lg border border-line object-cover" />
                   ) : (
-                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-tide to-tide-2 text-white shadow-sm">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-tide text-white">
                       <Icon icon="lucide:bed-double" className="h-5 w-5" />
                     </span>
                   )}
@@ -497,16 +552,19 @@ export default function StayRoomsPage() {
                     </p>
                     <button
                       type="button"
-                      onClick={() => cycleHousekeeping(room)}
                       disabled={busy}
-                      title="Tap to change housekeeping status"
+                      onClick={(e) => {
+                        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setHkMenu({ room, x: r.left, y: r.bottom + 6 });
+                      }}
                       className={cn(
-                        'mt-1 flex items-center gap-1 rounded-full border px-1.5 py-0.5 font-mono text-[8px] font-semibold uppercase tracking-wider transition-colors',
+                        'mt-1 flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[8px] font-semibold uppercase tracking-wider transition-colors',
                         HK_META[room.housekeeping].cls,
                       )}
                     >
                       <Icon icon={HK_META[room.housekeeping].icon} className="h-2.5 w-2.5" />
                       {HK_META[room.housekeeping].label}
+                      <Icon icon="lucide:chevron-down" className="h-2.5 w-2.5 opacity-70" />
                     </button>
                   </div>
                 </div>
@@ -519,7 +577,7 @@ export default function StayRoomsPage() {
                       key={d.date}
                       onMouseDown={(e) => onTrackMouseDown(e, room)}
                       className={cn(
-                        'group relative h-16 cursor-crosshair border-l border-line/60 transition-colors hover:bg-tide/5',
+                        'group relative h-16 cursor-crosshair border-l border-line transition-colors hover:bg-tide/5',
                         weekend && 'bg-paper-2/60',
                       )}
                     >
@@ -532,13 +590,14 @@ export default function StayRoomsPage() {
 
                 <div className="pointer-events-none absolute inset-y-0 z-0" style={{ left: ROOM_W, width: days * COL_W }}>
                   {todayIdx >= 0 && todayIdx < days && (
-                    <div className="absolute inset-y-0 z-10 w-px bg-err/50" style={{ left: todayIdx * COL_W + COL_W / 2 }} />
+                    <div className="absolute inset-y-0 z-10 w-px bg-tide" style={{ left: todayIdx * COL_W + COL_W / 2 }} />
                   )}
                   {room.segments.map((seg, si) => {
                     const { left, len } = segBox(seg);
                     if (len <= 0) return null;
                     const isBooking = seg.type === 'booking';
-                    const turn = turnovers.get(room.number)?.has(seg.end);
+                    const isMatch = !!searchInfo && isBooking && searchInfo.matchedIds.has(seg.id ?? '');
+                    const dimmed = !!searchInfo && !isMatch;
                     return (
                       <button
                         key={`${seg.type}-${seg.start}-${si}`}
@@ -556,24 +615,41 @@ export default function StayRoomsPage() {
                         }
                         style={{ left: left * COL_W, width: Math.max(len * COL_W - 3, 10) }}
                         className={cn(
-                          'pointer-events-auto absolute top-1.5 z-20 flex h-11 items-center gap-1.5 overflow-hidden rounded-lg px-2 text-left shadow-sm transition-transform hover:scale-[1.02]',
+                          'pointer-events-auto absolute top-1.5 z-20 flex h-12 items-center gap-2 overflow-hidden rounded-lg px-2 text-left transition-all hover:scale-[1.02]',
                           isBooking
                             ? 'cursor-pointer bg-tide text-white'
                             : seg.type === 'blocked'
-                              ? 'cursor-default border border-err/40 bg-err/10 text-err'
-                              : 'cursor-default border border-ember/40 bg-ember/10 text-ember',
-                          !isBooking &&
-                            'bg-[repeating-linear-gradient(45deg,var(--c-paper-2)_0_4px,transparent_4px_8px)]',
+                              ? 'cursor-default border border-warn/40 bg-warn/10 text-warn'
+                              : 'cursor-default border border-err/40 bg-err/10 text-err',
+                          !isBooking && 'bg-[repeating-linear-gradient(45deg,var(--c-paper-2)_0_4px,transparent_4px_8px)]',
+                          isMatch && 'ring-2 ring-tide-glow ring-offset-1 ring-offset-elevated',
+                          dimmed && 'opacity-25',
                         )}
                       >
                         {isBooking ? (
                           <>
-                            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-white/20 font-display text-xs font-semibold">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white/20 font-display text-xs font-semibold">
                               {(seg.guest ?? '?')[0]}
                             </span>
-                            <span className="min-w-0">
-                              <span className="block truncate text-[11px] font-semibold leading-tight">{seg.guest}</span>
-                              <span className="block truncate text-[9px] leading-tight opacity-80">{seg.channel}</span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[11px] font-semibold leading-tight">
+                                {seg.guest} · {seg.guests} guest{(seg.guests ?? 1) === 1 ? '' : 's'}
+                              </span>
+                              <span className="mt-0.5 flex items-center gap-1">
+                                <span
+                                  className={cn(
+                                    'rounded px-1 py-px font-mono text-[7px] font-bold uppercase tracking-wider',
+                                    seg.status === 'confirmed' ? 'bg-white/20 text-white' : 'bg-warn/30 text-white',
+                                  )}
+                                >
+                                  {seg.status === 'confirmed' ? 'Paid' : 'Hold'}
+                                </span>
+                                {seg.amount ? (
+                                  <span className="rounded bg-white/15 px-1 py-px font-mono-data text-[8px] font-semibold">
+                                    ₹{fmtMoney(seg.amount)}
+                                  </span>
+                                ) : null}
+                              </span>
                             </span>
                           </>
                         ) : (
@@ -581,7 +657,7 @@ export default function StayRoomsPage() {
                             <Icon icon={seg.type === 'maintenance' ? 'lucide:wrench' : 'lucide:lock'} className="h-3.5 w-3.5 shrink-0" />
                             <span className="min-w-0">
                               <span className="block truncate text-[10px] font-semibold uppercase tracking-wide leading-tight">
-                                {seg.type === 'maintenance' ? 'Maint' : 'Blocked'}
+                                {seg.type === 'maintenance' ? 'Maintenance' : 'Blocked'}
                               </span>
                               <span className="block truncate text-[9px] leading-tight opacity-80">{seg.reason}</span>
                             </span>
@@ -597,21 +673,20 @@ export default function StayRoomsPage() {
                       return (
                         <div
                           key={`split-${d}`}
-                          className="pointer-events-none absolute top-1.5 z-10 flex h-11 items-center justify-center rounded-lg"
+                          className="pointer-events-none absolute top-1.5 z-10 flex h-12 items-center justify-center rounded-lg"
                           style={{
                             left: idx * COL_W,
                             width: COL_W - 3,
-                            background:
-                              'linear-gradient(135deg, var(--c-tide) 0 48%, color-mix(in oklab, var(--c-tide-glow) 50%, var(--c-ink)) 52% 100%)',
+                            background: 'linear-gradient(135deg, var(--c-tide) 0 48%, var(--c-paper-2) 52% 100%)',
                           }}
                         >
-                          <span className="font-mono text-[8px] font-bold uppercase tracking-wider text-white/90">in/out</span>
+                          <span className="rounded bg-white/60 px-1 font-mono text-[7px] font-bold uppercase tracking-wider text-ink">in/out</span>
                         </div>
                       );
                     })}
                   {drag && drag.room === room.number && (
                     <div
-                      className="pointer-events-none absolute top-0 bottom-0 z-30 rounded-none border-2 border-tide bg-tide/15"
+                      className="pointer-events-none absolute top-0 bottom-0 z-30 rounded-none border-2 border-tide bg-tide/10"
                       style={{
                         left: Math.min(diffDays(start, drag.start), diffDays(start, drag.end)) * COL_W,
                         width: (Math.abs(diffDays(start, drag.start) - diffDays(start, drag.end)) + 1) * COL_W,
@@ -629,7 +704,8 @@ export default function StayRoomsPage() {
           <span>·</span>
           <span>Drag across empty days to bulk block</span>
           <span>·</span>
-          <span>Tap the housekeeping chip to change state</span>
+          <span>Tap the housekeeping badge to change state</span>
+          <span className="ml-auto">IST UTC+05:30</span>
         </div>
       </div>
 
@@ -652,15 +728,15 @@ export default function StayRoomsPage() {
               </span>
             </label>
             <div className="space-y-2">
-              {BLOCK_REASONS.map((reason) => (
+              {['Maintenance', 'Private use', 'Channel sync'].map((reason) => (
                 <button
                   key={reason}
                   type="button"
                   disabled={busy}
                   onClick={() => applyRangeAll(dragModal, 'blocked', reason)}
-                  className="flex w-full items-center gap-2 rounded-lg border border-line px-3 py-2.5 text-left text-xs font-semibold text-ink transition-colors hover:border-err/40 hover:bg-err/5"
+                  className="flex w-full items-center gap-2 rounded-lg border border-line px-3 py-2.5 text-left text-xs font-semibold text-ink transition-colors hover:border-warn/40 hover:bg-warn/5"
                 >
-                  <Icon icon="lucide:lock" className="h-4 w-4 text-err" />
+                  <Icon icon="lucide:lock" className="h-4 w-4 text-warn" />
                   Block — {reason}
                 </button>
               ))}
@@ -668,9 +744,9 @@ export default function StayRoomsPage() {
                 type="button"
                 disabled={busy}
                 onClick={() => applyRangeAll(dragModal, 'maintenance', 'Maintenance')}
-                className="flex w-full items-center gap-2 rounded-lg border border-line px-3 py-2.5 text-left text-xs font-semibold text-ink transition-colors hover:border-ember/40 hover:bg-ember/5"
+                className="flex w-full items-center gap-2 rounded-lg border border-line px-3 py-2.5 text-left text-xs font-semibold text-ink transition-colors hover:border-err/40 hover:bg-err/5"
               >
-                <Icon icon="lucide:wrench" className="h-4 w-4 text-ember" />
+                <Icon icon="lucide:wrench" className="h-4 w-4 text-err" />
                 Mark maintenance
               </button>
               <button
@@ -722,11 +798,7 @@ export default function StayRoomsPage() {
         )}
       </Dialog>
 
-      <Dialog
-        open={rulesOpen}
-        onClose={() => setRulesOpen(false)}
-        title="Stay rules"
-      >
+      <Dialog open={rulesOpen} onClose={() => setRulesOpen(false)} title="Stay rules">
         <RulesForm
           stayId={data.stay.id}
           minStay={data.settings.min_stay}
@@ -744,13 +816,49 @@ export default function StayRoomsPage() {
           <ExtendStayDialog
             seg={extendFor}
             room={inspectRoom}
-            price={data.settings.price_override ?? data.stay.price_per_night}
+            price={tonightRate}
             busy={busy}
             onClose={() => setExtendFor(null)}
             onConfirm={(date) => doExtend(extendFor, date)}
           />
         )}
       </Dialog>
+
+      {createPortal(
+        <AnimatePresence>
+          {hkMenu && (
+            <>
+              <button type="button" aria-label="Close housekeeping menu" className="fixed inset-0 z-40 cursor-default" onClick={() => setHkMenu(null)} />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.96, y: -4 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.96, y: -4 }}
+                transition={{ duration: 0.14 }}
+                style={{ left: Math.min(hkMenu.x, window.innerWidth - 180), top: Math.min(hkMenu.y, window.innerHeight - 150) }}
+                className="fixed z-50 w-44 rounded-xl border border-line bg-elevated p-1.5 shadow-2xl"
+              >
+                <p className="px-2.5 pb-1 pt-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-ink-3">
+                  {hkMenu.room.name}
+                </p>
+                {HK_ORDER.map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setHousekeeping(hkMenu.room, k)}
+                    className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-ink transition-colors hover:bg-paper-2"
+                  >
+                    <Icon icon={HK_META[k].icon} className={cn('h-3.5 w-3.5', HK_META[k].cls.split(' ').pop())} />
+                    {HK_META[k].label}
+                    {hkMenu.room.housekeeping === k && <Icon icon="lucide:check" className="ml-auto h-3.5 w-3.5 text-tide" />}
+                  </button>
+                ))}
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>,
+        document.body,
+      )}
 
       {createPortal(
         <AnimatePresence>
@@ -791,7 +899,7 @@ export default function StayRoomsPage() {
 
                 <div className="space-y-5 p-5">
                   <div className="flex items-center gap-3 rounded-2xl border border-line bg-elevated p-4">
-                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-tide to-tide-2 font-display text-lg font-semibold text-white">
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-tide font-display text-lg font-semibold text-white">
                       {(inspect.guest ?? '?')[0]}
                     </span>
                     <div className="min-w-0 flex-1">
@@ -840,7 +948,7 @@ export default function StayRoomsPage() {
                         </div>
                         <div className="mt-2 h-1 overflow-hidden rounded-full bg-paper-2">
                           <div
-                            className="h-full rounded-full bg-gradient-to-r from-ok to-tide"
+                            className="h-full rounded-full bg-tide"
                             style={{ width: `${(inspect.amount ?? 0) ? Math.min(100, ((inspect.advance ?? 0) / (inspect.amount ?? 1)) * 100) : 0}%` }}
                           />
                         </div>

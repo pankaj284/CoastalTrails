@@ -189,7 +189,9 @@ router.put('/:id', async (req, res) => {
       walking_minutes_to_beach,
       total_rooms,
       availability_listed,
-      description
+      description,
+      status,
+      instant_booking
     } = req.body;
 
     let roomCountUpdate = total_rooms;
@@ -213,9 +215,11 @@ router.put('/:id', async (req, res) => {
         walking_minutes_to_beach = COALESCE(?, walking_minutes_to_beach),
         total_rooms = COALESCE(?, total_rooms),
         availability_listed = COALESCE(?, availability_listed),
-        description = COALESCE(?, description)
+        description = COALESCE(?, description),
+        status = COALESCE(?, status),
+        instant_booking = COALESCE(?, instant_booking)
        WHERE id = ?`,
-      [title, subtitle, location, location_display, price_per_night, host_name, host_whatsapp, walking_minutes_to_beach, roomCountUpdate, availability_listed, description, id]
+      [title, subtitle, location, location_display, price_per_night, host_name, host_whatsapp, walking_minutes_to_beach, roomCountUpdate, availability_listed, description, status ?? null, instant_booking ?? null, id]
     );
 
     if (Array.isArray(req.body.amenities)) {
