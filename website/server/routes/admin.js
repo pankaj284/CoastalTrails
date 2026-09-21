@@ -19,6 +19,11 @@ async function enrich(stay) {
   const badges = await all('SELECT badge FROM homestay_badges WHERE homestay_id = ?', [stay.id]);
   const blocked = await all('SELECT blocked_date, reason FROM room_unavailability WHERE homestay_id = ? ORDER BY blocked_date ASC', [stay.id]);
   const bookings = await get('SELECT COUNT(*) AS c FROM bookings WHERE homestay_id = ?', [stay.id]);
+  const today = new Date().toISOString().split('T')[0];
+  const occupied = await get(
+    `SELECT COUNT(*) AS c FROM bookings WHERE homestay_id = ? AND status IN ('awaiting_host', 'confirmed') AND check_in <= ? AND check_out > ?`,
+    [stay.id, today, today]
+  );
   stay.imageUrls = images.map((r) => r.image_url);
   stay.imageCategories = images.map((r) => r.category);
   stay.amenities = amenities.map((r) => r.amenity);
@@ -26,6 +31,9 @@ async function enrich(stay) {
   stay.blockedDates = blocked.map((r) => r.blocked_date);
   stay.blockedReasons = blocked.map((r) => r.reason);
   stay.bookingsCount = bookings?.c || 0;
+  stay.bookedTonight = occupied?.c || 0;
+  stay.status = stay.status || 'live';
+  stay.instant_booking = stay.instant_booking == null ? 1 : stay.instant_booking;
   return stay;
 }
 
@@ -187,15 +195,22 @@ router.get('/hosts', async (req, res) => {
         const ids = stays.map((s) => s.id);
         let holds = 0;
         let upcoming = 0;
+        let awaiting = 0;
         if (ids.length) {
           const placeholders = ids.map(() => '?').join(',');
           const bks = await all(`SELECT advance_paid, check_in, status FROM bookings WHERE homestay_id IN (${placeholders})`, ids);
           holds = bks.reduce((sum, b) => sum + (b.advance_paid || 0), 0);
           const today = new Date().toISOString().split('T')[0];
           upcoming = bks.filter((b) => b.check_in >= today && b.status !== 'declined' && b.status !== 'cancelled').length;
+          awaiting = bks.filter((b) => b.status === 'awaiting_host').length;
         }
         h.holdsPaid = holds;
         h.upcoming = upcoming;
+        h.awaiting = awaiting;
+        h.verified = stays.length > 0 ? stays.some((s) => Number(s.is_host_verified) === 1) : true;
+        h.rating = stays.length
+          ? Math.round((stays.reduce((a, s) => a + (s.rating || 0), 0) / stays.length) * 10) / 10
+          : 0;
         return h;
       })
     );

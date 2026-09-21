@@ -42,8 +42,18 @@ export function initDatabase() {
               if (rsErr && !String(rsErr.message).includes('duplicate column')) {
                 console.error('Migration warning:', rsErr.message);
               }
-              console.log('Database schema successfully verified/initialized.');
-              resolve();
+              db.run(`ALTER TABLE homestays ADD COLUMN status TEXT DEFAULT 'live'`, (stErr) => {
+                if (stErr && !String(stErr.message).includes('duplicate column')) {
+                  console.error('Migration warning:', stErr.message);
+                }
+                db.run(`ALTER TABLE homestays ADD COLUMN instant_booking INTEGER DEFAULT 1`, (ibErr) => {
+                  if (ibErr && !String(ibErr.message).includes('duplicate column')) {
+                    console.error('Migration warning:', ibErr.message);
+                  }
+                  console.log('Database schema successfully verified/initialized.');
+                  resolve();
+                });
+              });
             });
           });
         });

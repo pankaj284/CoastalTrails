@@ -26,6 +26,7 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { Reveal } from '../components/ui/Reveal';
 import { Tabs } from '../components/ui/Tabs';
 import { cn } from '../lib/cn';
+import { useLiveRefresh } from '../lib/live';
 
 interface ReservationStatusPageProps {
   initialRefCode?: string;
@@ -86,9 +87,9 @@ export function ReservationStatusPage({ initialRefCode: propRefCode = '', onExpl
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'confirmed' | 'awaiting_host'>('all');
 
-  const fetchBookings = async () => {
+  const fetchBookings = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const data = await api.getBookings();
       setAllBookings(data);
       if (searchQuery.trim()) {
@@ -100,10 +101,15 @@ export function ReservationStatusPage({ initialRefCode: propRefCode = '', onExpl
           if (match) setSelectedBooking(match);
         }
       }
+      setSelectedBooking((prev) => {
+        if (!prev) return prev;
+        const fresh = data.find((b) => b.id === prev.id);
+        return fresh ?? prev;
+      });
     } catch (err) {
       console.error('Failed to load bookings', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -111,6 +117,8 @@ export function ReservationStatusPage({ initialRefCode: propRefCode = '', onExpl
     fetchBookings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlRefCode]);
+
+  useLiveRefresh(() => fetchBookings(true), 15000);
 
   const handleExplore = () => {
     if (onExploreStays) onExploreStays();

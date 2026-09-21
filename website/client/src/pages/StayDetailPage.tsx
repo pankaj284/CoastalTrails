@@ -32,6 +32,7 @@ import { MagneticButton } from '../components/ui/MagneticButton';
 import { SpotlightCard } from '../components/ui/SpotlightCard';
 import { Rating } from '../components/ui/Rating';
 import { DateRangePicker } from '../components/ui/DateRangePicker';
+import { useLiveRefresh } from '../lib/live';
 import { cn } from '../lib/cn';
 
 interface StayDetailPageProps {
@@ -131,6 +132,14 @@ export function StayDetailPage({ homestay: propHomestay, onBack, onBook, onNavig
       .then(setStayAvailability)
       .catch((err) => console.error('Failed to load stay availability:', err));
   }, [homestay]);
+
+  useLiveRefresh(() => {
+    if (!id) return;
+    api
+      .getHomestay(id)
+      .then(setHomestay)
+      .catch((err) => console.error('Failed to refresh homestay details:', err));
+  }, 20000);
 
   const handleBack = () => {
     if (onBack) onBack();

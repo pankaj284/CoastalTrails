@@ -56,6 +56,10 @@ Coastal-admin/dist/
 Coastal-admin/*.log
 website/server/uploads/
 
+# Secrets & local config
+.env
+website/server/.env
+
 # Local SQLite database — regenerate with `npm run seed`
 website/server/db/*.db
 website/server/db/*.db-shm

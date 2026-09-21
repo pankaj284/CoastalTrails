@@ -133,6 +133,9 @@ export default function App() {
             {admin ? (
               <div className="flex items-center gap-2">
                 <span className="hidden text-xs font-semibold text-ink-2 sm:inline">{admin.name}</span>
+                <span className="hidden sm:inline-flex">
+                  <Icon icon="lucide:chevron-down" className="h-3.5 w-3.5 text-ink-3" />
+                </span>
                 <button
                   onClick={() => {
                     localStorage.removeItem(ADMIN_KEY);

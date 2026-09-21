@@ -132,8 +132,8 @@ const homestays = [
     price_per_night: 1450,
     rating: 4.78,
     reviews_count: 134,
-    host_name: 'Lakshmi Kamath',
-    host_whatsapp: '+919611003322',
+    host_name: 'Manjunath Hegde',
+    host_whatsapp: '+919845123091',
     is_host_verified: 1,
     walking_minutes_to_beach: 3,
     total_rooms: 4,
@@ -258,8 +258,8 @@ const homestays = [
     price_per_night: 950,
     rating: 4.6,
     reviews_count: 203,
-    host_name: 'Ramesh Achari',
-    host_whatsapp: '+919448901122',
+    host_name: 'Manjunath Hegde',
+    host_whatsapp: '+919845123091',
     is_host_verified: 0,
     walking_minutes_to_beach: 5,
     total_rooms: 6,
@@ -384,6 +384,19 @@ export async function seed() {
     ('host-1', '+919845123091', 'Manjunath Hegde', 'kudle.cottages@gmail.com', 'host'),
     ('admin-1', '+919000000000', 'Gokarna Admin', 'admin@gokarnaconnect.in', 'admin')
   `);
+
+  await run(`DELETE FROM enclaves`);
+  const enclaveRows = [
+    ['kudle', 'Kudle Beach', 1],
+    ['om', 'Om Beach', 2],
+    ['halfMoon', 'Half Moon Beach', 3],
+    ['paradise', 'Paradise Beach', 4],
+    ['mainBeach', 'Main Beach', 5],
+    ['town', 'Gokarna Town', 6],
+  ];
+  for (const e of enclaveRows) {
+    await run('INSERT OR REPLACE INTO enclaves (id, label, sort_order) VALUES (?, ?, ?)', e);
+  }
 
   for (const h of homestays) {
     await run(

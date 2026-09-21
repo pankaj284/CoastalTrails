@@ -50,6 +50,9 @@ export interface HostRow {
   stays?: Homestay[];
   holdsPaid?: number;
   upcoming?: number;
+  awaiting?: number;
+  verified?: boolean;
+  rating?: number;
 }
 
 export interface Enclave {

@@ -20,6 +20,9 @@ export interface Homestay {
   blockedDates: string[];
   blockedReasons?: string[];
   bookingsCount?: number;
+  bookedTonight?: number;
+  status?: 'live' | 'paused' | 'draft';
+  instant_booking?: number | boolean;
 }
 
 export type BookingStatus = 'awaiting_host' | 'confirmed' | 'declined' | 'cancelled';

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Routes, Route, useNavigate, Navigate, useLocation } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { Lock } from 'lucide-react';
@@ -13,6 +13,7 @@ import { GrainOverlay } from './components/ui/GrainOverlay';
 import { ClickSpark } from './components/ui/ClickSpark';
 import { Skeleton } from './components/ui/Skeleton';
 import { easeOut } from './lib/motion';
+import { useLiveRefresh } from './lib/live';
 import type { Homestay, User } from './types';
 import { api } from './services/api';
 
@@ -80,15 +81,18 @@ export function App() {
   const [authMode, setAuthMode] = useState<'signin' | 'register'>('signin');
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
 
-  const fetchStays = async (beach?: string, search?: string, checkIn?: string, checkOut?: string) => {
+  const lastFilters = useRef<{ beach?: string; search?: string; checkIn?: string; checkOut?: string }>({});
+
+  const fetchStays = async (beach?: string, search?: string, checkIn?: string, checkOut?: string, silent = false) => {
+    lastFilters.current = { beach, search, checkIn, checkOut };
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const data = await api.getHomestays({ location: beach, search, checkIn, checkOut });
       setHomestays(data);
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -100,7 +104,13 @@ export function App() {
     } catch (e) {
       console.warn('Failed to parse saved user:', e);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useLiveRefresh(() => {
+    const f = lastFilters.current;
+    fetchStays(f.beach, f.search, f.checkIn, f.checkOut, true);
+  }, 25000);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

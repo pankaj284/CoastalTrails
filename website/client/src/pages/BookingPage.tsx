@@ -25,6 +25,7 @@ import { MagneticButton } from '../components/ui/MagneticButton';
 import { Input, Field } from '../components/ui/Input';
 import { cn } from '../lib/cn';
 import { easeOut, springFast } from '../lib/motion';
+import { useLiveRefresh } from '../lib/live';
 
 const FALLBACK_IMAGE =
   'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1600&q=80';
@@ -128,6 +129,14 @@ export function BookingPage() {
       .then(setStayAvailability)
       .catch((err) => console.error('Failed to load stay availability:', err));
   }, [homestay]);
+
+  useLiveRefresh(() => {
+    if (!id) return;
+    api
+      .getHomestay(id)
+      .then((data) => setHomestay(data))
+      .catch((err) => console.error('Failed to refresh stay for booking:', err));
+  }, 20000);
 
   const nights =
     checkIn && checkOut
