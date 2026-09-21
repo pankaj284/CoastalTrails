@@ -288,15 +288,37 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
         description: `20% hold · ${init.booking_reference}`,
         prefill: { name: init.customer.name, contact: init.customer.phone },
         onSuccess: async (r) => {
-          const { booking } = await api.confirmPayment(pendingBooking.id, {
-            razorpay_order_id: init.order_id,
-            razorpay_payment_id: r.razorpay_payment_id,
-            razorpay_signature: r.razorpay_signature,
-          });
-          setPendingBooking(null);
-          setConfirmed(booking);
+          try {
+            const { booking } = await api.confirmPayment(pendingBooking.id, {
+              razorpay_order_id: init.order_id,
+              razorpay_payment_id: r.razorpay_payment_id,
+              razorpay_signature: r.razorpay_signature,
+            });
+            setPendingBooking(null);
+            setConfirmed(booking);
+          } catch {
+            const synced = await api.syncPayment(pendingBooking.id).catch(() => null);
+            if (synced && synced.booking.payment_status === 'paid') {
+              setPendingBooking(null);
+              setConfirmed(synced.booking);
+            } else {
+              setPaymentError('Payment is being verified — refresh in a few seconds.');
+            }
+          }
         },
-        onFail: (message) => setPaymentError(message),
+        onFail: async (message) => {
+          await api.failPayment(pendingBooking.id).catch(() => {});
+          setPaymentError(message || 'Payment failed. You can retry.');
+        },
+        onCancel: async () => {
+          const synced = await api.syncPayment(pendingBooking.id).catch(() => null);
+          if (synced && synced.booking.payment_status === 'paid') {
+            setPendingBooking(null);
+            setConfirmed(synced.booking);
+          } else {
+            setPaymentError('Payment window closed — your booking is held, you can pay later from My Bookings.');
+          }
+        },
       });
     } catch (err: any) {
       setPaymentError(err.message || 'Payment could not be completed. You can retry from My Bookings.');

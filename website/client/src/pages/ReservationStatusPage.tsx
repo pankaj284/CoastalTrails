@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Search,
   Clock,
@@ -113,6 +113,7 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
   const [cancelling, setCancelling] = useState(false);
   const [payMethod, setPayMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
   const [payingHold, setPayingHold] = useState(false);
+  const syncingRef = useRef(false);
 
   const fetchBookings = async (silent = false) => {
     if (!currentUser) {
@@ -138,6 +139,27 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
         const fresh = data.find((b) => b.id === prev.id);
         return fresh ?? prev;
       });
+
+      // Auto-reconcile bookings whose payment may have completed while the
+      // checkout handler was interrupted (network drop, closed tab, etc.)
+      if (silent && !syncingRef.current) {
+        const stuck = data.filter(
+          (b) => b.payment_status === 'pending' && (b.status === 'pending_payment' || b.status === 'awaiting_host'),
+        );
+        if (stuck.length > 0) {
+          syncingRef.current = true;
+          Promise.all(stuck.slice(0, 3).map((b) => api.syncPayment(b.id).catch(() => null)))
+            .then((results) => {
+              if (results.some((r) => r && r.synced !== 'pending')) {
+                return fetchBookings(true);
+              }
+              return undefined;
+            })
+            .finally(() => {
+              syncingRef.current = false;
+            });
+        }
+      }
     } catch (err) {
       console.error('Failed to load bookings', err);
     } finally {
@@ -196,15 +218,31 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
         description: `20% hold · ${init.booking_reference}`,
         prefill: { name: init.customer.name, contact: init.customer.phone },
         onSuccess: async (r) => {
-          await api.confirmPayment(selectedBooking.id, {
-            razorpay_order_id: init.order_id,
-            razorpay_payment_id: r.razorpay_payment_id,
-            razorpay_signature: r.razorpay_signature,
-          });
+          try {
+            await api.confirmPayment(selectedBooking.id, {
+              razorpay_order_id: init.order_id,
+              razorpay_payment_id: r.razorpay_payment_id,
+              razorpay_signature: r.razorpay_signature,
+            });
+          } catch {
+            await api.syncPayment(selectedBooking.id).catch(() => {});
+          }
           await refreshBooking(selectedBooking.id);
           setNotice('Payment received — your booking has been sent to the host.');
         },
-        onFail: (message) => setNotice(message),
+        onFail: async (message) => {
+          await api.failPayment(selectedBooking.id).catch(() => {});
+          setNotice(message || 'Payment failed. You can retry.');
+        },
+        onCancel: async () => {
+          const synced = await api.syncPayment(selectedBooking.id).catch(() => null);
+          if (synced && synced.booking.payment_status === 'paid') {
+            await refreshBooking(selectedBooking.id);
+            setNotice('Payment received — your booking has been sent to the host.');
+          } else {
+            setNotice('Payment window closed — you can pay anytime from this page.');
+          }
+        },
       });
     } catch (err) {
       setNotice(err instanceof Error ? err.message : 'Could not complete the payment.');

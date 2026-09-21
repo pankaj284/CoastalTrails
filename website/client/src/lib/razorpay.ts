@@ -24,6 +24,7 @@ interface RazorpayOptions {
   prefill?: { name?: string; email?: string; contact?: string };
   theme?: { color?: string };
   method?: { upi?: boolean; card?: boolean; netbanking?: boolean; wallet?: boolean };
+  modal?: { ondismiss?: () => void };
   handler: (r: RazorpaySuccessResponse) => void;
 }
 
@@ -63,6 +64,7 @@ export interface CheckoutConfig {
   method?: 'upi' | 'card' | 'netbanking';
   onSuccess: (r: RazorpaySuccessResponse) => void | Promise<void>;
   onFail?: (message: string) => void;
+  onCancel?: () => void | Promise<void>;
 }
 
 export async function openRazorpayCheckout(config: CheckoutConfig): Promise<void> {
@@ -83,6 +85,11 @@ export async function openRazorpayCheckout(config: CheckoutConfig): Promise<void
       card: config.method === 'card',
       netbanking: config.method === 'netbanking',
       wallet: config.method === 'upi',
+    },
+    modal: {
+      ondismiss: () => {
+        void config.onCancel?.();
+      },
     },
     handler: (r) => {
       void config.onSuccess(r);

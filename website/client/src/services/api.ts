@@ -203,6 +203,22 @@ export const api = {
     }
   },
 
+  async syncPayment(bookingId: string): Promise<{
+    booking: Booking;
+    synced: 'paid' | 'failed' | 'pending';
+    already_paid?: boolean;
+  }> {
+    const res = await fetch(`${API_BASE}/payments/${bookingId}/sync`, {
+      method: 'POST',
+      headers: { ...authHeaders() },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.error || 'Could not sync the payment');
+    }
+    return res.json();
+  },
+
   // Routes
   async getRoutes(): Promise<TransitRoute[]> {
     const res = await fetch(`${API_BASE}/routes`);

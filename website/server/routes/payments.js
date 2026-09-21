@@ -25,6 +25,27 @@ function verifySignature(orderId, paymentId, signature) {
   return expected === signature;
 }
 
+async function markBookingPaid(booking, payment, paymentId) {
+  await run("UPDATE payments SET status = 'paid', provider_ref = ?, paid_at = NOW() WHERE id = ?", [
+    paymentId,
+    payment.id,
+  ]);
+  await run(
+    `UPDATE bookings
+     SET payment_status = 'paid', payment_id = ?, paid_at = NOW(),
+         advance_paid = ?, balance_payable_at_property = ?,
+         status = CASE WHEN status = 'pending_payment' THEN 'awaiting_host' ELSE status END
+     WHERE id = ?`,
+    [paymentId, payment.amount, Number(booking.total_amount) - Number(payment.amount), booking.id]
+  );
+  return get('SELECT * FROM bookings WHERE id = ?', [booking.id]);
+}
+
+async function markPaymentFailed(booking, payment) {
+  await run("UPDATE payments SET status = 'failed' WHERE id = ?", [payment.id]);
+  await run("UPDATE bookings SET payment_status = 'failed' WHERE id = ? AND payment_status = 'pending'", [booking.id]);
+}
+
 // POST /api/payments/:bookingId/initiate
 // Creates a Razorpay Order for the 20% advance hold.
 router.post('/:bookingId/initiate', requireAuth, async (req, res) => {
@@ -48,18 +69,13 @@ router.post('/:bookingId/initiate', requireAuth, async (req, res) => {
       [booking.id]
     );
 
-    // Reuse an existing Razorpay order if one is still unpaid
     let orderId = payment?.provider_ref ?? null;
     if (!payment || !orderId) {
       const order = await rzp.orders.create({
         amount: amountPaise,
         currency: 'INR',
         receipt: booking.reference_code,
-        notes: {
-          booking_id: booking.id,
-          homestay_id: booking.homestay_id,
-          guest: booking.user_name,
-        },
+        notes: { booking_id: booking.id, homestay_id: booking.homestay_id, guest: booking.user_name },
       });
       orderId = order.id;
     }
@@ -92,8 +108,7 @@ router.post('/:bookingId/initiate', requireAuth, async (req, res) => {
 });
 
 // POST /api/payments/:bookingId/confirm
-// Verifies the Razorpay signature AND the captured payment server-side
-// before marking anything paid.
+// Verifies signature + captured payment, capturing 'authorized' payments first.
 router.post('/:bookingId/confirm', requireAuth, async (req, res) => {
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body || {};
@@ -107,7 +122,9 @@ router.post('/:bookingId/confirm', requireAuth, async (req, res) => {
     ]);
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
     if (!canAccess(req, booking)) return res.status(403).json({ error: 'You can only pay for your own booking.' });
-    if (booking.payment_status === 'paid') return res.status(409).json({ error: 'This booking is already paid.' });
+    if (booking.payment_status === 'paid') {
+      return res.json({ booking, payment: null, already_paid: true });
+    }
 
     const payment = await get(
       "SELECT * FROM payments WHERE booking_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 1",
@@ -116,12 +133,18 @@ router.post('/:bookingId/confirm', requireAuth, async (req, res) => {
     if (!payment) return res.status(409).json({ error: 'Please start the payment before confirming it.' });
 
     if (!verifySignature(razorpay_order_id, razorpay_payment_id, razorpay_signature)) {
-      await run("UPDATE payments SET status = 'failed' WHERE id = ?", [payment.id]);
+      await markPaymentFailed(booking, payment);
       return res.status(400).json({ error: 'Payment signature verification failed.' });
     }
 
-    // Independent double-check against Razorpay — never trust the browser alone
-    const rzpPayment = await rzp.payments.fetch(razorpay_payment_id);
+    let rzpPayment = await rzp.payments.fetch(razorpay_payment_id);
+
+    // Some live payment methods arrive as 'authorized' (auto-capture off).
+    // Capture them now so the hold is actually charged.
+    if (rzpPayment.status === 'authorized') {
+      rzpPayment = await rzp.payments.capture(razorpay_payment_id, rzpPayment.amount);
+    }
+
     if (rzpPayment.status !== 'captured') {
       return res.status(400).json({ error: `Payment is not captured (status: ${rzpPayment.status}).` });
     }
@@ -129,20 +152,7 @@ router.post('/:bookingId/confirm', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Payment amount mismatch.' });
     }
 
-    await run("UPDATE payments SET status = 'paid', provider_ref = ?, paid_at = NOW() WHERE id = ?", [
-      razorpay_payment_id,
-      payment.id,
-    ]);
-    await run(
-      `UPDATE bookings
-       SET payment_status = 'paid', payment_id = ?, paid_at = NOW(),
-           advance_paid = ?, balance_payable_at_property = ?,
-           status = CASE WHEN status = 'pending_payment' THEN 'awaiting_host' ELSE status END
-       WHERE id = ?`,
-      [razorpay_payment_id, payment.amount, Number(booking.total_amount) - Number(payment.amount), booking.id]
-    );
-
-    const updated = await get('SELECT * FROM bookings WHERE id = ?', [booking.id]);
+    const updated = await markBookingPaid(booking, payment, razorpay_payment_id);
     res.json({ booking: updated, payment: { ...payment, status: 'paid', provider_ref: razorpay_payment_id } });
   } catch (err) {
     console.error('Razorpay confirm error:', err?.error?.description || err.message);
@@ -150,8 +160,47 @@ router.post('/:bookingId/confirm', requireAuth, async (req, res) => {
   }
 });
 
+// POST /api/payments/:bookingId/sync
+// Reconciles a pending booking against Razorpay — used when the browser
+// flow died mid-payment or the traveler closed the checkout.
+router.post('/:bookingId/sync', requireAuth, async (req, res) => {
+  try {
+    const booking = await get('SELECT * FROM bookings WHERE id = ? OR reference_code = ?', [
+      req.params.bookingId,
+      req.params.bookingId,
+    ]);
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    if (!canAccess(req, booking)) return res.status(403).json({ error: 'You can only sync your own booking.' });
+    if (booking.payment_status === 'paid') return res.json({ booking, synced: 'paid', already_paid: true });
+
+    const payment = await get(
+      "SELECT * FROM payments WHERE booking_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 1",
+      [booking.id]
+    );
+    if (!payment || !payment.provider_ref) return res.json({ booking, synced: 'pending' });
+
+    const orderPayments = await rzp.orders.fetchPayments(payment.provider_ref);
+    const items = orderPayments?.items || [];
+    const captured = items.find((p) => p.status === 'captured');
+    if (captured) {
+      const updated = await markBookingPaid(booking, payment, captured.id);
+      return res.json({ booking: updated, synced: 'paid' });
+    }
+    const failed = items.find((p) => p.status === 'failed');
+    if (failed) {
+      await markPaymentFailed(booking, payment);
+      const updated = await get('SELECT * FROM bookings WHERE id = ?', [booking.id]);
+      return res.json({ booking: updated, synced: 'failed' });
+    }
+    return res.json({ booking, synced: 'pending' });
+  } catch (err) {
+    console.error('Razorpay sync error:', err?.error?.description || err.message);
+    res.status(500).json({ error: 'Could not sync the payment right now.' });
+  }
+});
+
 // POST /api/payments/:bookingId/fail
-// Traveler dismissed the checkout or the gateway declined.
+// Traveler explicitly abandoned or the gateway declined.
 router.post('/:bookingId/fail', requireAuth, async (req, res) => {
   try {
     const booking = await get('SELECT * FROM bookings WHERE id = ? OR reference_code = ?', [
@@ -161,8 +210,11 @@ router.post('/:bookingId/fail', requireAuth, async (req, res) => {
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
     if (!canAccess(req, booking)) return res.status(403).json({ error: 'You can only manage your own booking.' });
 
-    await run("UPDATE payments SET status = 'failed' WHERE booking_id = ? AND status = 'pending'", [booking.id]);
-    await run("UPDATE bookings SET payment_status = 'failed' WHERE id = ? AND payment_status = 'pending'", [booking.id]);
+    const payment = await get(
+      "SELECT * FROM payments WHERE booking_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 1",
+      [booking.id]
+    );
+    if (payment) await markPaymentFailed(booking, payment);
 
     const updated = await get('SELECT * FROM bookings WHERE id = ?', [booking.id]);
     res.json(updated);
@@ -184,6 +236,46 @@ router.get('/:bookingId', requireAuth, async (req, res) => {
     const payments = await all('SELECT * FROM payments WHERE booking_id = ? ORDER BY created_at DESC', [booking.id]);
     res.json(payments);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/payments/razorpay-webhook
+// Server-side truth: Razorpay pushes payment.captured / payment.failed events.
+// Configure this URL in the Razorpay dashboard (requires a public HTTPS URL).
+router.post('/razorpay-webhook', async (req, res) => {
+  try {
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    const signature = req.headers['x-razorpay-signature'];
+    const raw = req.rawBody ? req.rawBody.toString() : JSON.stringify(req.body);
+    if (!secret) return res.status(400).json({ error: 'Webhook secret not configured.' });
+    const expected = crypto.createHmac('sha256', secret).update(raw).digest('hex');
+    if (!signature || signature !== expected) {
+      return res.status(400).json({ error: 'Invalid webhook signature.' });
+    }
+
+    const event = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    const entity = event?.payload?.payment?.entity || {};
+    const orderId = entity.order_id;
+    if (!orderId) return res.json({ ok: true });
+
+    const payment = await get("SELECT * FROM payments WHERE provider_ref = ? AND status = 'pending' LIMIT 1", [orderId]);
+    if (!payment) return res.json({ ok: true });
+    const booking = await get('SELECT * FROM bookings WHERE id = ?', [payment.booking_id]);
+    if (!booking) return res.json({ ok: true });
+
+    if (event.event === 'payment.captured') {
+      if (booking.payment_status !== 'paid') {
+        await markBookingPaid(booking, payment, entity.id);
+        console.log(`Webhook: booking ${booking.reference_code} marked paid.`);
+      }
+    } else if (event.event === 'payment.failed') {
+      await markPaymentFailed(booking, payment);
+      console.log(`Webhook: booking ${booking.reference_code} payment failed.`);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Webhook error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
