@@ -4,25 +4,33 @@ import { Icon } from '@iconify/react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { easeEmphasis } from '../lib/motion';
+import { adminLogin } from '../services/api';
 
 const ADMIN_KEY = 'coastal_admin';
 
 export function AdminLoginPage({ onLogin }: { onLogin: (a: { name: string; phone: string }) => void }) {
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  function signIn(name: string, phone: string) {
-    localStorage.setItem(ADMIN_KEY, JSON.stringify({ name, phone }));
-    onLogin({ name, phone });
-  }
-
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (password.length < 4) {
-      setError('Admin password must be at least 4 characters.');
+    if (!identifier.trim() || !password) {
+      setError('Enter the admin phone/email and password.');
       return;
     }
-    signIn('Gokarna Admin', '+919000000000');
+    setBusy(true);
+    setError('');
+    try {
+      const admin = await adminLogin(identifier.trim(), password);
+      localStorage.setItem(ADMIN_KEY, JSON.stringify({ name: admin.name, phone: admin.phone }));
+      onLogin({ name: admin.name, phone: admin.phone });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sign in failed.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -77,31 +85,41 @@ export function AdminLoginPage({ onLogin }: { onLogin: (a: { name: string; phone
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
               <label className="overline flex items-center gap-1.5 !text-ink-3">
+                <Icon icon="lucide:phone" className="h-3 w-3 text-tide" />
+                Admin phone or email
+              </label>
+              <Input
+                type="text"
+                placeholder="+91 90000 00000"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                autoComplete="username"
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="overline flex items-center gap-1.5 !text-ink-3">
                 <Icon icon="lucide:lock" className="h-3 w-3 text-tide" />
                 Admin password
               </label>
-              <Input type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required />
+              <Input
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                required
+              />
             </div>
             {error ? <p className="text-xs font-semibold text-err">{error}</p> : null}
-            <Button type="submit" className="w-full py-3">
-              Enter console
+            <Button type="submit" disabled={busy} className="w-full py-3">
+              {busy ? 'Checking access…' : 'Enter console'}
             </Button>
-
-            <div className="border-t border-line pt-4">
-              <button
-                type="button"
-                onClick={() => signIn('Gokarna Admin', '+919000000000')}
-                className="flex w-full items-center justify-center gap-2 rounded-xl border border-warn/30 bg-warn/5 py-2.5 text-xs font-semibold text-warn transition-colors hover:bg-warn/10"
-              >
-                <Icon icon="lucide:sparkles" className="h-3.5 w-3.5" />
-                Instant demo admin login — Gokarna Admin
-              </button>
-            </div>
           </form>
 
           <p className="mt-4 flex items-center justify-center gap-1.5 text-center font-mono text-[10px] uppercase tracking-wider text-ink-3">
             <Icon icon="lucide:shield-check" className="h-3 w-3 text-tide" />
-            Operator access only
+            Operator access only — admin role required
           </p>
         </motion.div>
       </div>

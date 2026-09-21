@@ -171,6 +171,19 @@ router.post('/', requireAuth, async (req, res) => {
       return res.status(409).json({ error: 'You have already reviewed this stay. Edit your existing review instead.' });
     }
 
+    // Reviews are earned by a *completed* stay, not just by being signed in
+    const completedStay = await get(
+      `SELECT id FROM bookings
+       WHERE homestay_id = ? AND user_id = ? AND status = 'confirmed' AND check_out <= CURDATE()
+       ORDER BY check_out DESC LIMIT 1`,
+      [homestay_id, req.user.id]
+    );
+    if (!completedStay) {
+      return res.status(403).json({
+        error: 'You can review this stay once your booking is completed (host confirmed and the check-out date has passed).',
+      });
+    }
+
     // Save up to 3 guest photos alongside the review
     const rawMedia = Array.isArray(req.body?.media) ? req.body.media.slice(0, MAX_MEDIA_ITEMS) : [];
     const savedMedia = [];
@@ -181,9 +194,9 @@ router.post('/', requireAuth, async (req, res) => {
     }
 
     const result = await run(
-      `INSERT INTO reviews (homestay_id, user_id, guest_name, rating, title, body, stay_details, verified, helpful_count)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0)`,
-      [homestay_id, req.user.id, req.user.name, Math.round(ratingNum), cleanTitle, cleanBody, cleanDetails]
+      `INSERT INTO reviews (homestay_id, user_id, booking_id, guest_name, rating, title, body, stay_details, verified, helpful_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)`,
+      [homestay_id, req.user.id, completedStay.id, req.user.name, Math.round(ratingNum), cleanTitle, cleanBody, cleanDetails]
     );
 
     for (const media of savedMedia) {

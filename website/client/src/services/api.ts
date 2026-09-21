@@ -102,26 +102,23 @@ export const api = {
     if (!res.ok) throw new Error('Failed to delete homestay');
   },
 
-  // Bookings
-  async getBookings(phone?: string): Promise<Booking[]> {
-    const q = new URLSearchParams();
-    if (phone) q.set('phone', phone);
-    const res = await fetch(`${API_BASE}/bookings?${q.toString()}`);
+  // Bookings — the server authorises by session token and derives the guest
+  // identity from the logged-in user.
+  async getBookings(): Promise<Booking[]> {
+    const res = await fetch(`${API_BASE}/bookings`, { headers: { ...authHeaders() } });
     if (!res.ok) throw new Error('Failed to fetch bookings');
     return res.json();
   },
 
   async createBooking(booking: {
     homestay_id: string;
-    user_name: string;
-    user_phone: string;
     check_in: string;
     check_out: string;
     guests_count: number;
   }): Promise<Booking> {
     const res = await fetch(`${API_BASE}/bookings`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(booking),
     });
     if (!res.ok) {
@@ -134,7 +131,7 @@ export const api = {
   async updateBookingStatus(id: string, status: string): Promise<Booking> {
     const res = await fetch(`${API_BASE}/bookings/${id}/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ status }),
     });
     if (!res.ok) throw new Error('Failed to update booking status');

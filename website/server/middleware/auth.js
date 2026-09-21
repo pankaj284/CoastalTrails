@@ -57,3 +57,35 @@ export async function requireAuth(req, res, next) {
     return res.status(500).json({ error: 'Could not verify your session. Please try again.' });
   }
 }
+
+// Admin console routes: valid session AND the admin role
+export function requireAdmin(req, res, next) {
+  return requireAuth(req, res, () => {
+    if (!req.user || req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required.' });
+    }
+    return next();
+  });
+}
+
+// Optional auth: resolves the user when a token is present, but never rejects
+export async function optionalAuth(req, res, next) {
+  try {
+    const header = req.headers.authorization || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7).trim() : null;
+    if (!token) return next();
+    const session = await get(
+      `SELECT s.expires_at, u.id, u.name, u.phone, u.email, u.role
+       FROM sessions s JOIN users u ON u.id = s.user_id
+       WHERE s.token = ?`,
+      [token]
+    );
+    if (session && new Date(String(session.expires_at).replace(' ', 'T')) >= new Date()) {
+      req.user = { id: session.id, name: session.name, phone: session.phone, email: session.email, role: session.role };
+      req.authToken = token;
+    }
+    return next();
+  } catch {
+    return next();
+  }
+}

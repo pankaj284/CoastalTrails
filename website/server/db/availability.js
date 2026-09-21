@@ -100,6 +100,48 @@ export async function getRoomsLeftMap(homestayId, from, to) {
   return { total_rooms: stay.total_rooms, listed: !!stay.availability_listed, dates: roomsLeft, blockedByHost };
 }
 
+// Pick a single room number that is free for every night of the stay.
+// Returns null when the stay has no room free across the whole range
+// (the admin board then falls back to its automatic visual allocation).
+export async function pickRoomForStay(homestayId, from, to, totalRooms) {
+  const nights = eachNight(from, to);
+  if (!nights.length || !totalRooms || totalRooms < 1) return null;
+
+  const hostBlocks = await all(
+    'SELECT blocked_date FROM room_unavailability WHERE homestay_id = ? AND blocked_date >= ? AND blocked_date < ?',
+    [homestayId, isoDate(from), isoDate(to)]
+  );
+  if (hostBlocks.length > 0) return null; // whole property blocked
+
+  const overrides = await all(
+    `SELECT room_number, date FROM room_status
+     WHERE homestay_id = ? AND date >= ? AND date < ? AND status IN ('blocked', 'maintenance')`,
+    [homestayId, isoDate(from), isoDate(to)]
+  );
+  const unavailable = new Set(overrides.map((o) => `${o.room_number}:${isoDate(o.date)}`));
+
+  const activeBookings = await all(
+    `SELECT room_number, check_in, check_out FROM bookings
+     WHERE homestay_id = ?
+       AND status IN ('awaiting_host', 'confirmed')
+       AND (status = 'confirmed' OR hold_expires_at IS NULL OR hold_expires_at > NOW())
+       AND check_in < ? AND check_out > ?`,
+    [homestayId, isoDate(to), isoDate(from)]
+  );
+  for (const b of activeBookings) {
+    if (!b.room_number) continue;
+    for (const d of eachNight(b.check_in, b.check_out)) {
+      unavailable.add(`${b.room_number}:${d}`);
+    }
+  }
+
+  for (let room = 1; room <= totalRooms; room += 1) {
+    const freeAllNights = nights.every((d) => !unavailable.has(`${room}:${d}`));
+    if (freeAllNights) return room;
+  }
+  return null;
+}
+
 // Rooms left per night across every published homestay (used by the explore date picker)
 export async function getAggregateRoomsLeft(from, to) {
   const stays = await all('SELECT id FROM homestays WHERE availability_listed = 1');

@@ -247,8 +247,6 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
     try {
       const booking = await api.createBooking({
         homestay_id: homestay.id,
-        user_name: name.trim(),
-        user_phone: phone.trim(),
         check_in: checkIn,
         check_out: checkOut,
         guests_count: guests,

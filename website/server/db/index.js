@@ -112,6 +112,28 @@ async function runMigrations() {
     await pool.query('ALTER TABLE bookings ADD COLUMN room_number INT NULL');
     console.log('Migration applied: bookings.room_number column added.');
   }
+
+  // Bookings belong to an authenticated user (not just a name/phone typed in the browser)
+  const [bookingUserColumns] = await pool.query("SHOW COLUMNS FROM bookings LIKE 'user_id'");
+  if (bookingUserColumns.length === 0) {
+    await pool.query('ALTER TABLE bookings ADD COLUMN user_id VARCHAR(64) NULL AFTER homestay_id');
+    await pool.query(
+      'ALTER TABLE bookings ADD CONSTRAINT fk_bookings_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL'
+    );
+    const [backfill] = await pool.query(
+      'UPDATE bookings b JOIN users u ON u.phone = b.user_phone SET b.user_id = u.id WHERE b.user_id IS NULL'
+    );
+    console.log(`Migration applied: bookings.user_id added (linked ${backfill.affectedRows} existing bookings).`);
+  }
+
+  const [reviewBookingColumns] = await pool.query("SHOW COLUMNS FROM reviews LIKE 'booking_id'");
+  if (reviewBookingColumns.length === 0) {
+    await pool.query('ALTER TABLE reviews ADD COLUMN booking_id VARCHAR(64) NULL AFTER user_id');
+    await pool.query(
+      'ALTER TABLE reviews ADD CONSTRAINT fk_reviews_booking FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL'
+    );
+    console.log('Migration applied: reviews.booking_id column added.');
+  }
 }
 
 // Create the database if missing, then apply the schema

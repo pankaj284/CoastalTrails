@@ -110,6 +110,7 @@ CREATE TABLE IF NOT EXISTS bookings (
     id VARCHAR(64) PRIMARY KEY,
     reference_code VARCHAR(32) UNIQUE NOT NULL,
     homestay_id VARCHAR(64) NOT NULL,
+    user_id VARCHAR(64), -- authenticated traveler who booked (null for offline walk-ins)
     user_name VARCHAR(120) NOT NULL,
     user_phone VARCHAR(32) NOT NULL,
     check_in DATE NOT NULL, -- YYYY-MM-DD
@@ -125,7 +126,8 @@ CREATE TABLE IF NOT EXISTS bookings (
     hold_expires_at DATETIME,
     INDEX idx_bookings_phone (user_phone),
     INDEX idx_bookings_homestay (homestay_id),
-    CONSTRAINT fk_bookings_homestay FOREIGN KEY (homestay_id) REFERENCES homestays(id)
+    CONSTRAINT fk_bookings_homestay FOREIGN KEY (homestay_id) REFERENCES homestays(id),
+    CONSTRAINT fk_bookings_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 9. Guest Reviews (CRUD: owner = logged-in user, one review per stay)
@@ -133,6 +135,7 @@ CREATE TABLE IF NOT EXISTS reviews (
     id INT AUTO_INCREMENT PRIMARY KEY,
     homestay_id VARCHAR(64) NOT NULL,
     user_id VARCHAR(64) NULL, -- author (null for seeded/legacy reviews)
+    booking_id VARCHAR(64) NULL, -- completed stay this review belongs to
     guest_name VARCHAR(120) NOT NULL, -- display fallback for seeded reviews
     rating TINYINT NOT NULL,
     title VARCHAR(190) NOT NULL,
@@ -145,7 +148,8 @@ CREATE TABLE IF NOT EXISTS reviews (
     INDEX idx_reviews_stay (homestay_id),
     UNIQUE KEY uq_review_user_stay (homestay_id, user_id),
     CONSTRAINT fk_reviews_homestay FOREIGN KEY (homestay_id) REFERENCES homestays(id) ON DELETE CASCADE,
-    CONSTRAINT fk_reviews_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+    CONSTRAINT fk_reviews_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+    CONSTRAINT fk_reviews_booking FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 10. Login sessions (API tokens for authenticated CRUD actions)

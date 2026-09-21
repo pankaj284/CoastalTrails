@@ -1,6 +1,7 @@
 import express from 'express';
 import { all, get, run } from '../db/index.js';
-import { expireStaleHolds, getRoomsLeftMap, eachNight, localTodayISO, localDateTime } from '../db/availability.js';
+import { expireStaleHolds, getRoomsLeftMap, eachNight, localTodayISO, localDateTime, pickRoomForStay } from '../db/availability.js';
+import { requireAuth, requireAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -18,34 +19,26 @@ function generateRefCode() {
   return `GK-${num}`;
 }
 
-// GET /api/bookings - List all bookings
-router.get('/', async (req, res) => {
+// GET /api/bookings - the logged-in traveler's own bookings only
+router.get('/', requireAuth, async (req, res) => {
   try {
     await expireStaleHolds();
-    const { phone } = req.query;
-    let query = `
-      SELECT b.*, h.title as homestay_title, h.location_display, h.host_name, h.host_whatsapp
-      FROM bookings b
-      LEFT JOIN homestays h ON b.homestay_id = h.id
-    `;
-    const params = [];
-
-    if (phone) {
-      query += ' WHERE b.user_phone = ?';
-      params.push(phone);
-    }
-
-    query += ' ORDER BY b.created_at DESC';
-
-    const bookings = await all(query, params);
+    const bookings = await all(
+      `SELECT b.*, h.title as homestay_title, h.location_display, h.host_name, h.host_whatsapp
+       FROM bookings b
+       LEFT JOIN homestays h ON b.homestay_id = h.id
+       WHERE b.user_id = ?
+       ORDER BY b.created_at DESC`,
+      [req.user.id]
+    );
     res.json(bookings);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET /api/bookings/:id
-router.get('/:id', async (req, res) => {
+// GET /api/bookings/:id - owner (or admin) only
+router.get('/:id', requireAuth, async (req, res) => {
   try {
     const booking = await get(`
       SELECT b.*, h.title as homestay_title, h.location_display, h.host_name, h.host_whatsapp
@@ -55,6 +48,9 @@ router.get('/:id', async (req, res) => {
     `, [req.params.id, req.params.id]);
 
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    if (booking.user_id !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'You can only view your own bookings.' });
+    }
     res.json(booking);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -62,18 +58,20 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/bookings - Create new booking with 20% advance calculation
-router.post('/', async (req, res) => {
+// The author of the booking is the authenticated user — never the browser payload.
+router.post('/', requireAuth, async (req, res) => {
   try {
     const {
       homestay_id,
-      user_name,
-      user_phone,
       check_in,
       check_out,
       guests_count = 1,
     } = req.body;
 
-    if (!homestay_id || !user_name || !user_phone || !check_in || !check_out) {
+    const user_name = req.user.name;
+    const user_phone = req.user.phone;
+
+    if (!homestay_id || !check_in || !check_out) {
       return res.status(400).json({ error: 'Missing required booking details' });
     }
 
@@ -131,14 +129,19 @@ router.post('/', async (req, res) => {
     // Unconfirmed holds release the rooms automatically after 24 hours
     const hold_expires_at = localDateTime(Date.now() + HOLD_HOURS * 60 * 60 * 1000);
 
+    // Persist the room this booking occupies so the admin board and the
+    // traveler availability always agree on the same room mapping.
+    const assignedRoom = await pickRoomForStay(homestay_id, check_in, check_out, homestay.total_rooms);
+
     await run(
       `INSERT INTO bookings 
-        (id, reference_code, homestay_id, user_name, user_phone, check_in, check_out, guests_count, total_amount, advance_paid, balance_payable_at_property, status, hold_expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_host', ?)`,
+        (id, reference_code, homestay_id, user_id, user_name, user_phone, check_in, check_out, guests_count, total_amount, advance_paid, balance_payable_at_property, status, hold_expires_at, room_number)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_host', ?, ?)`,
       [
         id,
         reference_code,
         homestay_id,
+        req.user.id,
         user_name,
         user_phone,
         check_in,
@@ -147,7 +150,8 @@ router.post('/', async (req, res) => {
         total_amount,
         advance_paid,
         balance_payable_at_property,
-        hold_expires_at
+        hold_expires_at,
+        assignedRoom
       ]
     );
 
@@ -180,8 +184,8 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PATCH /api/bookings/:id/status
-router.patch('/:id/status', async (req, res) => {
+// PATCH /api/bookings/:id/status - host decisions are made from the admin console
+router.patch('/:id/status', requireAdmin, async (req, res) => {
   try {
     const { status } = req.body;
     const valid = ['awaiting_host', 'confirmed', 'declined', 'cancelled'];

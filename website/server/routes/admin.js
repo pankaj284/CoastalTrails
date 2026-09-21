@@ -1,7 +1,11 @@
 import express from 'express';
 import { all, get, run } from '../db/index.js';
+import { requireAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// Every admin console route requires a valid session with the admin role
+router.use(requireAdmin);
 
 function toISO(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -428,6 +432,10 @@ router.post('/bookings', async (req, res) => {
     const stay = await get('SELECT id, title, price_per_night, total_rooms, availability_listed FROM homestays WHERE id = ?', [homestay_id]);
     if (!stay) return res.status(404).json({ error: 'Homestay not found' });
 
+    // Link the walk-in to a registered account when the phone matches
+    const matchedUser = await get('SELECT id FROM users WHERE phone = ?', [String(user_phone).replace(/[\s\-()]/g, '')]);
+    const userId = matchedUser?.id || null;
+
     const roomNum = Number(room_number) || null;
     if (roomNum !== null && (roomNum < 1 || roomNum > Number(stay.total_rooms || 1))) {
       return res.status(400).json({ error: `Room number must be between 1 and ${stay.total_rooms || 1}.` });
@@ -446,10 +454,10 @@ router.post('/bookings', async (req, res) => {
     const reference_code = `GK-${Math.floor(100000 + Math.random() * 900000)}`;
 
     await run(
-      `INSERT INTO bookings (id, reference_code, homestay_id, user_name, user_phone, check_in, check_out, guests_count,
+      `INSERT INTO bookings (id, reference_code, homestay_id, user_id, user_name, user_phone, check_in, check_out, guests_count,
                              total_amount, advance_paid, balance_payable_at_property, status, channel, room_number)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?)`,
-      [id, reference_code, homestay_id, user_name, user_phone, check_in, check_out, guests, total_amount, advance_paid, balance_payable_at_property, channel, roomNum]
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?)`,
+      [id, reference_code, homestay_id, userId, user_name, user_phone, check_in, check_out, guests, total_amount, advance_paid, balance_payable_at_property, channel, roomNum]
     );
 
     // Taking a booking means the stay is live for travelers too

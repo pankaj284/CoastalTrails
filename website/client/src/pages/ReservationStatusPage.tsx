@@ -93,7 +93,7 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
     }
     try {
       setLoading(true);
-      const data = await api.getBookings(currentUser.phone);
+      const data = await api.getBookings();
       setAllBookings(data);
       if (searchQuery.trim()) {
         filterResults(searchQuery.trim(), data);

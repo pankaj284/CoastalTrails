@@ -1,9 +1,77 @@
 import type { Booking, BookingStatus, Homestay } from '../types';
 
 const BASE = '/api';
+const TOKEN_KEY = 'coastal_admin_token';
+
+export function getAdminToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setAdminToken(token: string | null) {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+export interface AdminSession {
+  id: string;
+  name: string;
+  phone: string;
+  email?: string;
+  role: string;
+  token: string;
+}
+
+// Admin console sign-in: uses the same session API as travelers, then
+// requires the admin role before granting access.
+export async function adminLogin(identifier: string, password: string): Promise<AdminSession> {
+  const res = await fetch(`${BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier, password }),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error || 'Sign in failed.');
+  if (data?.role !== 'admin') throw new Error('This account does not have admin access.');
+  setAdminToken(data.token);
+  return data;
+}
+
+export async function adminLogout(): Promise<void> {
+  const token = getAdminToken();
+  if (token) {
+    try {
+      await fetch(`${BASE}/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+    } catch {
+      /* signing out locally is enough */
+    }
+  }
+  setAdminToken(null);
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init);
+  const token = getAdminToken();
+  const headers = new Headers(init?.headers || {});
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+
+  const res = await fetch(`${BASE}${path}`, { ...init, headers });
+  if (res.status === 401) {
+    setAdminToken(null);
+    try {
+      localStorage.removeItem('coastal_admin');
+    } catch {
+      /* storage unavailable */
+    }
+    if (!window.location.pathname.startsWith('/login')) window.location.assign('/login');
+    throw new Error('Your session has expired. Please sign in again.');
+  }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error(data.error || 'Request failed');

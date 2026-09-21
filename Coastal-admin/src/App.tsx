@@ -5,6 +5,7 @@ import { Icon } from '@iconify/react';
 import { useTheme } from './lib/theme';
 import { cn } from './lib/cn';
 import { easeOut } from './lib/motion';
+import { adminLogout } from './services/api';
 import { TideLine } from './components/ui/TideLine';
 import { GrainOverlay } from './components/ui/GrainOverlay';
 import { ClickSpark } from './components/ui/ClickSpark';
@@ -135,6 +136,7 @@ export default function App() {
                 <span className="hidden text-xs font-semibold text-ink-2 sm:inline">{admin.name}</span>
                 <button
                   onClick={() => {
+                    adminLogout();
                     localStorage.removeItem(ADMIN_KEY);
                     setAdmin(null);
                   }}
