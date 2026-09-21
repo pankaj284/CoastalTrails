@@ -93,6 +93,31 @@ async function runMigrations() {
     await pool.query('ALTER TABLE reviews ADD UNIQUE KEY uq_review_user_stay (homestay_id, user_id)');
     console.log('Migration applied: one review per user per stay enforced.');
   }
+
+  const [bkColumns] = await pool.query("SHOW COLUMNS FROM bookings LIKE 'channel'");
+  if (bkColumns.length === 0) {
+    await pool.query("ALTER TABLE bookings ADD COLUMN channel VARCHAR(64) DEFAULT 'Direct website'");
+    console.log('Migration applied: bookings.channel column added.');
+  }
+
+  const [imgColumns] = await pool.query("SHOW COLUMNS FROM homestay_images LIKE 'category'");
+  if (imgColumns.length === 0) {
+    await pool.query("ALTER TABLE homestay_images ADD COLUMN category VARCHAR(32) DEFAULT 'general'");
+    console.log('Migration applied: homestay_images.category column added.');
+  }
+
+  const [rsColumns] = await pool.query("SHOW COLUMNS FROM room_status LIKE 'reason'");
+  if (rsColumns.length === 0) {
+    await pool.query('ALTER TABLE room_status ADD COLUMN reason VARCHAR(64)');
+    console.log('Migration applied: room_status.reason column added.');
+  }
+
+  const [stColumns] = await pool.query("SHOW COLUMNS FROM homestays LIKE 'status'");
+  if (stColumns.length === 0) {
+    await pool.query("ALTER TABLE homestays ADD COLUMN status VARCHAR(16) DEFAULT 'live'");
+    await pool.query("ALTER TABLE homestays ADD COLUMN instant_booking TINYINT DEFAULT 1");
+    console.log('Migration applied: homestays.status + instant_booking columns added.');
+  }
 }
 
 // Create the database if missing, then apply the schema

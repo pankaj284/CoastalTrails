@@ -5,6 +5,10 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { initDatabase } from './db/index.js';
 import homestaysRouter from './routes/homestays.js';
+import ownerRouter from './routes/owner.js';
+import adminRouter from './routes/admin.js';
+import uploadRouter from './routes/upload.js';
+import enclavesRouter from './routes/enclaves.js';
 import bookingsRouter from './routes/bookings.js';
 import databaseRouter from './routes/database.js';
 import routesRouter from './routes/routes.js';
@@ -40,12 +44,16 @@ app.use((req, res, next) => {
 
 // Mount Routes
 app.use('/api/homestays', homestaysRouter);
+app.use('/api/owner', ownerRouter);
+app.use('/api/admin', adminRouter);
 app.use('/api/bookings', bookingsRouter);
 app.use('/api/db', databaseRouter);
 app.use('/api/routes', routesRouter);
 app.use('/api/telemetry', telemetryRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/reviews', reviewsRouter);
+app.use('/api', uploadRouter);
+app.use('/api/enclaves', enclavesRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -61,7 +69,9 @@ app.get('/api/health', (req, res) => {
       '/api/routes',
       '/api/auth/register',
       '/api/auth/login',
-      '/api/reviews'
+      '/api/reviews',
+      '/api/admin',
+      '/api/enclaves'
     ]
   });
 });
