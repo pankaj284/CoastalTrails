@@ -20,6 +20,7 @@ interface RazorpayOptions {
   currency: string;
   name: string;
   description?: string;
+  image?: string;
   order_id: string;
   prefill?: { name?: string; email?: string; contact?: string };
   theme?: { color?: string };
@@ -75,6 +76,7 @@ export async function openRazorpayCheckout(config: CheckoutConfig): Promise<void
     currency: 'INR',
     name: 'Coastal Trails',
     description: config.description,
+    image: `${window.location.origin}/coastal-trails-logo.png`,
     order_id: config.orderId,
     prefill: config.prefill,
     theme: { color: '#0f766e' },
