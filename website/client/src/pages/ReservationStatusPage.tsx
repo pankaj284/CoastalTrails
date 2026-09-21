@@ -29,6 +29,7 @@ import { Reveal } from '../components/ui/Reveal';
 import { Tabs } from '../components/ui/Tabs';
 import { cn } from '../lib/cn';
 import { useLiveRefresh } from '../lib/live';
+import { openRazorpayCheckout } from '../lib/razorpay';
 
 interface ReservationStatusPageProps {
   currentUser: User | null;
@@ -186,10 +187,25 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
     if (!selectedBooking) return;
     setPayingHold(true);
     try {
-      await api.initiatePayment(selectedBooking.id, payMethod);
-      await api.confirmPayment(selectedBooking.id);
-      await refreshBooking(selectedBooking.id);
-      setNotice('Payment received — your booking has been sent to the host.');
+      const init = await api.initiatePayment(selectedBooking.id, payMethod);
+      await openRazorpayCheckout({
+        key: init.key_id,
+        orderId: init.order_id,
+        amountPaise: init.amount_paise,
+        method: payMethod as 'upi' | 'card' | 'netbanking',
+        description: `20% hold · ${init.booking_reference}`,
+        prefill: { name: init.customer.name, contact: init.customer.phone },
+        onSuccess: async (r) => {
+          await api.confirmPayment(selectedBooking.id, {
+            razorpay_order_id: init.order_id,
+            razorpay_payment_id: r.razorpay_payment_id,
+            razorpay_signature: r.razorpay_signature,
+          });
+          await refreshBooking(selectedBooking.id);
+          setNotice('Payment received — your booking has been sent to the host.');
+        },
+        onFail: (message) => setNotice(message),
+      });
     } catch (err) {
       setNotice(err instanceof Error ? err.message : 'Could not complete the payment.');
     } finally {

@@ -18,6 +18,7 @@ import {
 import type { Booking, Homestay, User } from '../types';
 import { api } from '../services/api';
 import { useLiveRefresh } from '../lib/live';
+import { openRazorpayCheckout } from '../lib/razorpay';
 import { DateRangePicker } from '../components/ui/DateRangePicker';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
@@ -278,10 +279,25 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
     setPaying(true);
     setPaymentError(null);
     try {
-      await api.initiatePayment(pendingBooking.id, paymentMethod);
-      const { booking } = await api.confirmPayment(pendingBooking.id);
-      setPendingBooking(null);
-      setConfirmed(booking);
+      const init = await api.initiatePayment(pendingBooking.id, paymentMethod);
+      await openRazorpayCheckout({
+        key: init.key_id,
+        orderId: init.order_id,
+        amountPaise: init.amount_paise,
+        method: paymentMethod as 'upi' | 'card' | 'netbanking',
+        description: `20% hold · ${init.booking_reference}`,
+        prefill: { name: init.customer.name, contact: init.customer.phone },
+        onSuccess: async (r) => {
+          const { booking } = await api.confirmPayment(pendingBooking.id, {
+            razorpay_order_id: init.order_id,
+            razorpay_payment_id: r.razorpay_payment_id,
+            razorpay_signature: r.razorpay_signature,
+          });
+          setPendingBooking(null);
+          setConfirmed(booking);
+        },
+        onFail: (message) => setPaymentError(message),
+      });
     } catch (err: any) {
       setPaymentError(err.message || 'Payment could not be completed. You can retry from My Bookings.');
     } finally {
