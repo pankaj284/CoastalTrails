@@ -365,6 +365,19 @@ export async function seed() {
     }
   }
 
+  // Enclaves power the admin dashboard grouping
+  const enclaves = [
+    { id: 'kudle', label: 'Kudle Beach', sort_order: 1 },
+    { id: 'om', label: 'Om Beach', sort_order: 2 },
+    { id: 'halfmoon', label: 'Half Moon Cove', sort_order: 3 },
+    { id: 'paradise', label: 'Paradise Beach', sort_order: 4 },
+    { id: 'mainbeach', label: 'Main Beach', sort_order: 5 },
+    { id: 'town', label: 'Gokarna Town', sort_order: 6 },
+  ];
+  for (const e of enclaves) {
+    await run('REPLACE INTO enclaves (id, label, sort_order) VALUES (?, ?, ?)', [e.id, e.label, e.sort_order]);
+  }
+
   for (const r of routes) {
     await run(
       `REPLACE INTO transit_routes 
