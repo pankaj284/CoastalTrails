@@ -463,6 +463,18 @@ router.post('/bookings', async (req, res) => {
     // Taking a booking means the stay is live for travelers too
     await run('UPDATE homestays SET availability_listed = 1 WHERE id = ?', [homestay_id]);
 
+    // Desk bookings are collected in cash at the property — record the payment
+    const deskRef = `DESK-${Date.now().toString(36).toUpperCase()}`;
+    await run(
+      "UPDATE bookings SET payment_status = 'paid', payment_id = ?, paid_at = NOW() WHERE id = ?",
+      [deskRef, id]
+    );
+    await run(
+      `INSERT INTO payments (id, booking_id, amount, method, status, provider, provider_ref, paid_at)
+       VALUES (?, ?, ?, 'cash', 'paid', 'desk', ?, NOW())`,
+      [`pay-${Date.now()}-desk`, id, total_amount, deskRef]
+    );
+
     const created = await get('SELECT * FROM bookings WHERE id = ?', [id]);
     res.status(201).json({ ...created, nights });
   } catch (err) {

@@ -32,13 +32,19 @@ export function eachNight(from, to) {
 }
 
 // Pending holds past their expiry stop blocking rooms automatically.
+// Unpaid holds expire; unpaid host-approval holds are cancelled.
 export async function expireStaleHolds() {
-  const result = await run(
+  const expired = await run(
+    `UPDATE bookings
+     SET status = 'expired'
+     WHERE status = 'pending_payment' AND hold_expires_at IS NOT NULL AND hold_expires_at < NOW()`
+  );
+  const cancelled = await run(
     `UPDATE bookings
      SET status = 'cancelled'
      WHERE status = 'awaiting_host' AND hold_expires_at IS NOT NULL AND hold_expires_at < NOW()`
   );
-  return result.changes;
+  return (expired.changes || 0) + (cancelled.changes || 0);
 }
 
 // Rooms left per night for one homestay.
@@ -61,8 +67,8 @@ export async function getRoomsLeftMap(homestayId, from, to) {
   const activeBookings = await all(
     `SELECT check_in, check_out, status, hold_expires_at FROM bookings
      WHERE homestay_id = ?
-       AND status IN ('awaiting_host', 'confirmed')
-       AND (status = 'confirmed' OR hold_expires_at IS NULL OR hold_expires_at > NOW())
+       AND status IN ('pending_payment', 'awaiting_host', 'confirmed', 'checked_in')
+       AND (status IN ('confirmed', 'checked_in') OR hold_expires_at IS NULL OR hold_expires_at > NOW())
        AND check_in < ? AND check_out > ?`,
     [homestayId, isoDate(to), isoDate(from)]
   );
@@ -123,8 +129,8 @@ export async function pickRoomForStay(homestayId, from, to, totalRooms) {
   const activeBookings = await all(
     `SELECT room_number, check_in, check_out FROM bookings
      WHERE homestay_id = ?
-       AND status IN ('awaiting_host', 'confirmed')
-       AND (status = 'confirmed' OR hold_expires_at IS NULL OR hold_expires_at > NOW())
+       AND status IN ('pending_payment', 'awaiting_host', 'confirmed', 'checked_in')
+       AND (status IN ('confirmed', 'checked_in') OR hold_expires_at IS NULL OR hold_expires_at > NOW())
        AND check_in < ? AND check_out > ?`,
     [homestayId, isoDate(to), isoDate(from)]
   );

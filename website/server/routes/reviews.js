@@ -174,7 +174,8 @@ router.post('/', requireAuth, async (req, res) => {
     // Reviews are earned by a *completed* stay, not just by being signed in
     const completedStay = await get(
       `SELECT id FROM bookings
-       WHERE homestay_id = ? AND user_id = ? AND status = 'confirmed' AND check_out <= CURDATE()
+       WHERE homestay_id = ? AND user_id = ?
+         AND (status = 'completed' OR (status = 'confirmed' AND check_out <= CURDATE()))
        ORDER BY check_out DESC LIMIT 1`,
       [homestay_id, req.user.id]
     );

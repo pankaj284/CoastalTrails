@@ -119,9 +119,12 @@ CREATE TABLE IF NOT EXISTS bookings (
     total_amount DOUBLE NOT NULL,
     advance_paid DOUBLE NOT NULL,
     balance_payable_at_property DOUBLE NOT NULL,
-    status VARCHAR(32) DEFAULT 'awaiting_host', -- 'awaiting_host', 'confirmed', 'declined', 'cancelled'
+    status VARCHAR(32) DEFAULT 'pending_payment', -- 'pending_payment','awaiting_host','confirmed','checked_in','completed','declined','cancelled','expired'
+    payment_status VARCHAR(20) DEFAULT 'pending', -- 'pending','paid','failed','partially_paid','refunded'
+    payment_id VARCHAR(120), -- provider reference once paid
+    paid_at DATETIME,
     channel VARCHAR(64) DEFAULT 'Direct website', -- admin dashboard booking channel
-    room_number INT, -- set for admin-created (walk-in) bookings
+    room_number INT, -- persistent room assignment
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     hold_expires_at DATETIME,
     INDEX idx_bookings_phone (user_phone),
@@ -184,6 +187,22 @@ CREATE TABLE IF NOT EXISTS transit_routes (
     car_mins INT NOT NULL,
     bus_mins INT NOT NULL,
     active_mode VARCHAR(32) DEFAULT 'scooter'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 12. Payments (gateway records, kept separate from booking status)
+CREATE TABLE IF NOT EXISTS payments (
+    id VARCHAR(64) PRIMARY KEY,
+    booking_id VARCHAR(64) NOT NULL,
+    amount DOUBLE NOT NULL,
+    method VARCHAR(32) DEFAULT 'upi', -- 'upi','card','netbanking','cash'
+    status VARCHAR(20) NOT NULL DEFAULT 'pending', -- 'pending','paid','failed','refunded'
+    provider VARCHAR(32) DEFAULT 'mock',
+    provider_ref VARCHAR(120),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    paid_at DATETIME,
+    refunded_at DATETIME,
+    INDEX idx_payments_booking (booking_id),
+    CONSTRAINT fk_payments_booking FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 11. Enclaves (admin dashboard location grouping)

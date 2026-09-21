@@ -15,6 +15,8 @@ import {
   CalendarDays,
   LogOut,
   Moon,
+  Wallet,
+  X,
 } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import type { Booking, User } from '../types';
@@ -57,9 +59,13 @@ function useCountdown(target?: string) {
 
 function StatusPill({ status }: { status: Booking['status'] }) {
   const map = {
+    pending_payment: { label: 'Payment pending', icon: Clock, cls: 'border-warn/40 bg-warn/10 text-warn' },
     confirmed: { label: 'Confirmed', icon: CheckCircle2, cls: 'border-ok/30 bg-ok/10 text-ok' },
+    checked_in: { label: 'Checked in', icon: CheckCircle2, cls: 'border-tide/30 bg-tide/10 text-tide' },
+    completed: { label: 'Completed', icon: CheckCircle2, cls: 'border-ok/30 bg-ok/10 text-ok' },
     declined: { label: 'Declined', icon: XCircle, cls: 'border-err/30 bg-err/10 text-err' },
     cancelled: { label: 'Cancelled', icon: XCircle, cls: 'border-ink-3/30 bg-paper-2 text-ink-3' },
+    expired: { label: 'Expired', icon: XCircle, cls: 'border-ink-3/30 bg-paper-2 text-ink-3' },
     awaiting_host: { label: 'Awaiting host', icon: Clock, cls: 'border-warn/30 bg-warn/10 text-warn' },
   } as const;
   const m = map[status] ?? map.awaiting_host;
@@ -68,6 +74,23 @@ function StatusPill({ status }: { status: Booking['status'] }) {
     <span className={cn('inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-wider', m.cls)}>
       <Icon className="h-3 w-3" />
       {m.label}
+    </span>
+  );
+}
+
+function PaymentBadge({ booking }: { booking: Booking }) {
+  const status = booking.payment_status ?? (booking.advance_paid > 0 ? 'paid' : 'pending');
+  const map: Record<string, string> = {
+    paid: 'border-ok/30 bg-ok/10 text-ok',
+    refunded: 'border-tide/30 bg-tide/10 text-tide',
+    failed: 'border-err/30 bg-err/10 text-err',
+    partially_paid: 'border-warn/30 bg-warn/10 text-warn',
+    pending: 'border-warn/30 bg-warn/10 text-warn',
+  };
+  return (
+    <span className={cn('inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-wider', map[status] || map.pending)}>
+      <Wallet className="h-3 w-3" />
+      {status === 'partially_paid' ? 'Part paid' : status}
     </span>
   );
 }
@@ -84,6 +107,10 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
   const [copiedRef, setCopiedRef] = useState<string | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'confirmed' | 'awaiting_host'>('all');
+  const [notice, setNotice] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [payMethod, setPayMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
+  const [payingHold, setPayingHold] = useState(false);
 
   const fetchBookings = async () => {
     if (!currentUser) {
@@ -115,6 +142,52 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
     fetchBookings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlRefCode, currentUser?.phone]);
+
+  // Status notices dismiss themselves after a few seconds
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 4500);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  const refreshBooking = async (id: string) => {
+    const fresh = await api.getBookings();
+    setAllBookings(fresh);
+    setMatchingBookings(fresh);
+    const updated = fresh.find((b) => b.id === id);
+    if (updated) setSelectedBooking(updated);
+    return updated;
+  };
+
+  const handleCancelBooking = async () => {
+    if (!selectedBooking) return;
+    if (!window.confirm('Cancel this booking? Any paid hold is refunded to the original payment method.')) return;
+    setCancelling(true);
+    try {
+      await api.cancelBooking(selectedBooking.id);
+      await refreshBooking(selectedBooking.id);
+      setNotice('Booking cancelled — any paid hold will be refunded.');
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Could not cancel the booking.');
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  const handleCompletePayment = async () => {
+    if (!selectedBooking) return;
+    setPayingHold(true);
+    try {
+      await api.initiatePayment(selectedBooking.id, payMethod);
+      await api.confirmPayment(selectedBooking.id);
+      await refreshBooking(selectedBooking.id);
+      setNotice('Payment received — your booking has been sent to the host.');
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Could not complete the payment.');
+    } finally {
+      setPayingHold(false);
+    }
+  };
 
   const handleExplore = () => {
     if (onExploreStays) onExploreStays();
@@ -197,8 +270,8 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
   const countdown = useCountdown(selectedBooking?.hold_expires_at);
 
   if (selectedBooking) {
-    const isConfirmed = selectedBooking.status === 'confirmed';
-    const isDeclined = selectedBooking.status === 'declined';
+    const isConfirmed = ['confirmed', 'checked_in', 'completed'].includes(selectedBooking.status);
+    const isDeclined = ['declined', 'cancelled', 'expired'].includes(selectedBooking.status);
     const isAwaiting = !isConfirmed && !isDeclined;
     const nights =
       selectedBooking.nights ||
@@ -225,7 +298,18 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
             <span>All bookings</span>
           </button>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            {['pending_payment', 'awaiting_host', 'confirmed'].includes(selectedBooking.status) ? (
+              <button
+                type="button"
+                onClick={handleCancelBooking}
+                disabled={cancelling}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-err/30 bg-err/5 px-3.5 py-2 text-xs font-semibold text-err transition-colors hover:bg-err/10 disabled:opacity-60"
+              >
+                <XCircle className="h-3.5 w-3.5" />
+                <span>{cancelling ? 'Cancelling…' : 'Cancel booking'}</span>
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => window.print()}
@@ -234,9 +318,68 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
               <Printer className="h-3.5 w-3.5" />
               <span>Print voucher</span>
             </button>
+            <PaymentBadge booking={selectedBooking} />
             <StatusPill status={selectedBooking.status} />
           </div>
         </div>
+
+        {notice ? (
+          <div className="flex items-center justify-between gap-2.5 rounded-xl border border-tide/30 bg-tide/5 p-3 text-xs font-semibold text-tide">
+            <span className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              {notice}
+            </span>
+            <button
+              type="button"
+              onClick={() => setNotice(null)}
+              aria-label="Dismiss message"
+              className="shrink-0 rounded-full p-0.5 text-tide/70 transition-colors hover:bg-tide/10 hover:text-tide"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : null}
+
+        {selectedBooking.status === 'pending_payment' ? (
+          <div className="rounded-3xl border border-warn/40 bg-warn/5 p-5 sm:p-6">
+            <div className="flex items-start gap-3">
+              <Wallet className="mt-0.5 h-5 w-5 shrink-0 text-warn" />
+              <div className="min-w-0 flex-1 space-y-3">
+                <div>
+                  <p className="font-display text-lg font-semibold text-ink">Finish your 20% hold</p>
+                  <p className="text-xs text-ink-2">
+                    ₹{Math.round(selectedBooking.total_amount * 0.2)} due now · ₹
+                    {selectedBooking.total_amount - Math.round(selectedBooking.total_amount * 0.2)} payable at the property. Your
+                    rooms stay held for 24 hours.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {(['upi', 'card', 'netbanking'] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setPayMethod(m)}
+                      className={cn(
+                        'rounded-xl border px-3.5 py-2 text-[11px] font-bold uppercase tracking-wider transition-colors',
+                        payMethod === m
+                          ? 'border-tide bg-tide/10 text-tide'
+                          : 'border-line-2 bg-elevated text-ink-2 hover:border-tide hover:text-tide',
+                      )}
+                    >
+                      {m === 'upi' ? 'UPI' : m === 'card' ? 'Card' : 'Netbanking'}
+                    </button>
+                  ))}
+                  <Button size="sm" onClick={handleCompletePayment} disabled={payingHold}>
+                    {payingHold ? 'Verifying…' : `Pay ₹${Math.round(selectedBooking.total_amount * 0.2)} now`}
+                  </Button>
+                </div>
+                <p className="text-[11px] text-ink-3">
+                  Simulated gateway — the server verifies the payment before the booking moves to the host.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <Reveal>
           <div className="print-voucher relative overflow-hidden rounded-3xl border border-line bg-elevated">
@@ -274,7 +417,15 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
                     isConfirmed ? 'border-ok/60 text-ok' : isDeclined ? 'border-err/60 text-err' : 'border-warn/60 text-warn',
                   )}
                 >
-                  {isConfirmed ? 'Confirmed ✓' : isDeclined ? 'Declined' : 'Awaiting host'}
+                  {selectedBooking.status === 'cancelled'
+                    ? 'Cancelled'
+                    : selectedBooking.status === 'expired'
+                      ? 'Expired'
+                      : isConfirmed
+                        ? 'Confirmed ✓'
+                        : isDeclined
+                          ? 'Declined'
+                          : 'Awaiting host'}
                 </span>
               </div>
             </div>
@@ -435,6 +586,22 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
 
   return (
     <div className="w-full space-y-8">
+      {notice ? (
+        <div className="mx-auto flex max-w-2xl items-center justify-between gap-2.5 rounded-xl border border-tide/30 bg-tide/5 p-3 text-xs font-semibold text-tide">
+          <span className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            {notice}
+          </span>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            aria-label="Dismiss message"
+            className="shrink-0 rounded-full p-0.5 text-tide/70 transition-colors hover:bg-tide/10 hover:text-tide"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ) : null}
       <div className="mx-auto max-w-xl space-y-3 text-center">
         <p className="overline">Reservation desk</p>
         <h1 className="font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl">Your bookings</h1>
@@ -548,6 +715,9 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
                             </span>
                             <span className="font-mono text-[11px] uppercase tracking-wider text-ink-3">{b.reference_code}</span>
                             <StatusPill status={b.status} />
+                            {b.payment_status && b.payment_status !== 'paid' ? (
+                              <span className="font-mono text-[10px] uppercase tracking-wider text-warn">payment {b.payment_status}</span>
+                            ) : null}
                           </div>
                           <h3 className="truncate font-display text-lg font-semibold text-ink">{b.homestay_title || 'Coastal Sanctuary'}</h3>
                           <p className="flex items-center gap-1.5 text-xs text-ink-2">

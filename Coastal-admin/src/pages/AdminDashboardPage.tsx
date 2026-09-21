@@ -18,31 +18,47 @@ function fmtShort(iso: string): string {
 }
 
 const STATUS_DOT: Record<string, string> = {
+  pending_payment: 'bg-warn',
   awaiting_host: 'bg-warn',
   confirmed: 'bg-ok',
+  checked_in: 'bg-tide',
+  completed: 'bg-ok',
   declined: 'bg-err',
   cancelled: 'bg-ink-3',
+  expired: 'bg-ink-3',
 };
 
 const STATUS_ICON: Record<string, string> = {
+  pending_payment: 'lucide:wallet',
   awaiting_host: 'lucide:clock',
   confirmed: 'lucide:check',
+  checked_in: 'lucide:log-in',
+  completed: 'lucide:flag',
   declined: 'lucide:x',
   cancelled: 'lucide:ban',
+  expired: 'lucide:timer-off',
 };
 
 const STATUS_TONE: Record<string, string> = {
+  pending_payment: 'text-warn',
   awaiting_host: 'text-warn',
   confirmed: 'text-ok',
+  checked_in: 'text-tide',
+  completed: 'text-ok',
   declined: 'text-err',
   cancelled: 'text-ink-3',
+  expired: 'text-ink-3',
 };
 
 const STATUS_LABEL: Record<string, string> = {
+  pending_payment: 'Payment pending',
   awaiting_host: 'Awaiting',
   confirmed: 'Confirmed',
+  checked_in: 'Checked in',
+  completed: 'Completed',
   declined: 'Declined',
   cancelled: 'Cancelled',
+  expired: 'Expired',
 };
 
 function TrendChart({ data }: { data: TrendPoint[] }) {

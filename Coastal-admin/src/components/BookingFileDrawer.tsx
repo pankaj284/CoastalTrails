@@ -291,10 +291,26 @@ export function BookingFileDrawer({
                     Decline
                   </Button>
                 </div>
+              ) : booking.status === 'confirmed' ? (
+                <div className="flex gap-2">
+                  <Button className="flex-1 gap-1.5" disabled={busy} onClick={() => onStatusChange(booking, 'checked_in')}>
+                    <Icon icon="lucide:log-in" className="h-4 w-4" />
+                    Check in
+                  </Button>
+                  <Button variant="secondary" className="flex-1 gap-1.5" disabled={busy} onClick={() => onStatusChange(booking, 'cancelled')}>
+                    <Icon icon="lucide:ban" className="h-4 w-4" />
+                    Cancel
+                  </Button>
+                </div>
+              ) : booking.status === 'checked_in' ? (
+                <Button className="w-full gap-1.5" disabled={busy} onClick={() => onStatusChange(booking, 'completed')}>
+                  <Icon icon="lucide:flag" className="h-4 w-4" />
+                  Complete stay
+                </Button>
               ) : (
                 <p className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-line-2 bg-paper-2 py-3 font-mono text-[11px] uppercase tracking-wider text-ink-3">
                   <Icon icon="lucide:clock" className="h-3.5 w-3.5" />
-                  Settled
+                  {booking.status === 'pending_payment' ? 'Awaiting payment' : 'Settled'}
                 </p>
               )}
             </div>

@@ -118,11 +118,12 @@ router.post('/', requireAuth, async (req, res) => {
     const nights = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
 
     // Tariff calculation: 20% online advance, 80% direct to host
-    // Base rate covers 2 guests; each extra guest adds 400/night
+    // Base rate covers 2 guests; each extra guest adds 400/night.
+    // NOTE: nothing is marked as paid until the payment is verified.
     const extraGuests = Math.max(0, (guests_count || 2) - 2);
     const total_amount = (homestay.price_per_night + extraGuests * 400) * nights;
-    const advance_paid = Math.round(total_amount * 0.20);
-    const balance_payable_at_property = total_amount - advance_paid;
+    const advance_paid = 0;
+    const balance_payable_at_property = total_amount;
 
     const id = `bk-${Date.now()}`;
     const reference_code = generateRefCode();
@@ -135,8 +136,8 @@ router.post('/', requireAuth, async (req, res) => {
 
     await run(
       `INSERT INTO bookings 
-        (id, reference_code, homestay_id, user_id, user_name, user_phone, check_in, check_out, guests_count, total_amount, advance_paid, balance_payable_at_property, status, hold_expires_at, room_number)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_host', ?, ?)`,
+        (id, reference_code, homestay_id, user_id, user_name, user_phone, check_in, check_out, guests_count, total_amount, advance_paid, balance_payable_at_property, status, payment_status, hold_expires_at, room_number)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_payment', 'pending', ?, ?)`,
       [
         id,
         reference_code,
@@ -188,17 +189,65 @@ router.post('/', requireAuth, async (req, res) => {
 router.patch('/:id/status', requireAdmin, async (req, res) => {
   try {
     const { status } = req.body;
-    const valid = ['awaiting_host', 'confirmed', 'declined', 'cancelled'];
+    const valid = ['pending_payment', 'awaiting_host', 'confirmed', 'checked_in', 'completed', 'declined', 'cancelled', 'expired'];
     if (!valid.includes(status)) {
       return res.status(400).json({ error: `Status must be one of: ${valid.join(', ')}` });
     }
 
     await run('UPDATE bookings SET status = ? WHERE id = ? OR reference_code = ?', [status, req.params.id, req.params.id]);
 
+    // Cancelling or declining a paid booking records a refund
+    if (status === 'cancelled' || status === 'declined') {
+      const booking = await get('SELECT * FROM bookings WHERE id = ? OR reference_code = ?', [req.params.id, req.params.id]);
+      if (booking && booking.payment_status === 'paid') {
+        await run("UPDATE bookings SET payment_status = 'refunded' WHERE id = ?", [booking.id]);
+        await run(
+          "UPDATE payments SET status = 'refunded', refunded_at = NOW() WHERE booking_id = ? AND status = 'paid'",
+          [booking.id]
+        );
+      }
+    }
+
     const updated = await get('SELECT * FROM bookings WHERE id = ? OR reference_code = ?', [req.params.id, req.params.id]);
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/bookings/:id/cancel - the traveler cancels their own booking
+router.post('/:id/cancel', requireAuth, async (req, res) => {
+  try {
+    const booking = await get('SELECT * FROM bookings WHERE id = ? OR reference_code = ?', [req.params.id, req.params.id]);
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    if (booking.user_id !== req.user.id) {
+      return res.status(403).json({ error: 'You can only cancel your own booking.' });
+    }
+    if (!['pending_payment', 'awaiting_host', 'confirmed'].includes(booking.status)) {
+      return res.status(409).json({ error: `This booking cannot be cancelled (status: ${booking.status}).` });
+    }
+    if (booking.check_in <= localTodayISO()) {
+      return res.status(409).json({ error: 'Stays can only be cancelled before the check-in date. Please contact the host.' });
+    }
+
+    const wasPaid = booking.payment_status === 'paid';
+    await run(
+      `UPDATE bookings SET status = 'cancelled', payment_status = ?, hold_expires_at = NULL WHERE id = ?`,
+      [wasPaid ? 'refunded' : booking.payment_status, booking.id]
+    );
+    if (wasPaid) {
+      await run("UPDATE payments SET status = 'refunded', refunded_at = NOW() WHERE booking_id = ? AND status = 'paid'", [
+        booking.id,
+      ]);
+    }
+
+    const updated = await get('SELECT * FROM bookings WHERE id = ?', [booking.id]);
+    res.json({
+      ...updated,
+      refund_note: wasPaid ? 'Your 20% hold will be returned to the original payment method.' : 'No payment was captured.',
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not cancel the booking right now. Please try again.' });
   }
 });
 

@@ -125,6 +125,10 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [confirmed, setConfirmed] = useState<Booking | null>(null);
+  const [pendingBooking, setPendingBooking] = useState<Booking | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
+  const [paying, setPaying] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -251,11 +255,28 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
         check_out: checkOut,
         guests_count: guests,
       });
-      setConfirmed(booking);
+      // Rooms are now held with payment pending — nothing is marked paid yet
+      setPendingBooking(booking);
     } catch (err: any) {
-      setError(err.message || 'Failed to confirm the hold.');
+      setError(err.message || 'Failed to lock the dates.');
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function payNow() {
+    if (!pendingBooking) return;
+    setPaying(true);
+    setPaymentError(null);
+    try {
+      await api.initiatePayment(pendingBooking.id, paymentMethod);
+      const { booking } = await api.confirmPayment(pendingBooking.id);
+      setPendingBooking(null);
+      setConfirmed(booking);
+    } catch (err: any) {
+      setPaymentError(err.message || 'Payment could not be completed. You can retry from My Bookings.');
+    } finally {
+      setPaying(false);
     }
   }
 
@@ -346,6 +367,11 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
               <p className="text-sm text-ink-2">
                 {confirmed.check_in} → {confirmed.check_out} · {guests} guest{guests > 1 ? 's' : ''} · {nights} night{nights > 1 ? 's' : ''}
               </p>
+              {confirmed.payment_status === 'paid' ? (
+                <p className="font-mono text-[11px] uppercase tracking-wider text-ok">
+                  20% hold paid ₹{confirmed.advance_paid} · balance ₹{confirmed.balance_payable_at_property} at the property
+                </p>
+              ) : null}
             </div>
 
             <div className="flex items-end justify-center gap-0.5" aria-hidden="true">
@@ -373,6 +399,91 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
                   Coordinate arrival
                 </a>
               ) : null}
+            </div>
+          </motion.div>
+        ) : pendingBooking ? (
+          <motion.div
+            key="payment"
+            initial={{ opacity: 0, scale: 0.97 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.35, ease: easeOut }}
+            className="mx-auto max-w-lg space-y-5"
+          >
+            <div className="space-y-2 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-tide/15 text-tide">
+                <Check className="h-6 w-6" />
+              </div>
+              <p className="overline">Dates held · payment pending</p>
+              <h1 className="font-display text-3xl font-semibold tracking-tight text-ink">Complete your 20% hold</h1>
+              <div className="mx-auto w-fit rounded-xl border border-line bg-elevated px-4 py-2 font-mono-data text-lg font-semibold text-ink">
+                {pendingBooking.reference_code}
+              </div>
+              <p className="text-sm text-ink-2">
+                {pendingBooking.check_in} → {pendingBooking.check_out} · {guests} guest{guests > 1 ? 's' : ''} · {nights} night
+                {nights > 1 ? 's' : ''}
+              </p>
+              <p className="font-mono text-[11px] uppercase tracking-wider text-ink-3">
+                {homestay.title} · rooms held for 24 hours
+              </p>
+            </div>
+
+            <div className="space-y-2.5 rounded-3xl border border-line bg-elevated p-5 text-xs">
+              <div className="flex justify-between text-ink-2">
+                <span>Total stay tariff</span>
+                <span className="font-mono-data font-semibold text-ink">₹{pendingBooking.total_amount}</span>
+              </div>
+              <div className="flex justify-between font-semibold text-tide">
+                <span>20% hold due now</span>
+                <span className="font-mono-data">₹{Math.round(pendingBooking.total_amount * 0.2)}</span>
+              </div>
+              <div className="flex justify-between border-t border-line pt-2 text-ink-2">
+                <span>80% balance at the property</span>
+                <span className="font-mono-data font-semibold text-ink">₹{pendingBooking.total_amount - Math.round(pendingBooking.total_amount * 0.2)}</span>
+              </div>
+            </div>
+
+            <div className="space-y-2.5">
+              <p className="overline">Payment method</p>
+              <div className="grid grid-cols-3 gap-2">
+                {(['upi', 'card', 'netbanking'] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setPaymentMethod(m)}
+                    className={cn(
+                      'rounded-xl border px-3 py-2.5 text-xs font-bold uppercase tracking-wider transition-colors',
+                      paymentMethod === m
+                        ? 'border-tide bg-tide/10 text-tide'
+                        : 'border-line-2 bg-elevated text-ink-2 hover:border-tide hover:text-tide',
+                    )}
+                  >
+                    {m === 'upi' ? 'UPI' : m === 'card' ? 'Card' : 'Netbanking'}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-ink-3">
+                Simulated gateway for this build — the payment is verified server-side before any amount is marked paid.
+              </p>
+            </div>
+
+            {paymentError ? (
+              <div className="flex items-start gap-2 rounded-xl border border-err/30 bg-err/10 p-3 text-xs font-semibold text-err">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{paymentError}</span>
+              </div>
+            ) : null}
+
+            <div className="space-y-2.5">
+              <Button onClick={payNow} disabled={paying} className="w-full py-4 text-sm font-semibold">
+                {paying ? 'Verifying payment…' : `Pay ₹${Math.round(pendingBooking.total_amount * 0.2)} securely`}
+              </Button>
+              <button
+                type="button"
+                onClick={() => navigate('/bookings')}
+                className="w-full rounded-xl border border-line-2 bg-elevated py-3 text-xs font-semibold text-ink-2 transition-colors hover:border-tide hover:text-tide"
+              >
+                Pay later — finish from My Bookings
+              </button>
             </div>
           </motion.div>
         ) : (
@@ -620,7 +731,7 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
 
                       <MagneticButton className="w-full">
                         <Button onClick={submit} disabled={submitting} className="w-full py-4 text-sm font-semibold">
-                          {submitting ? 'Locking your dates…' : `Pay ₹${advance} & lock`}
+                          {submitting ? 'Locking your dates…' : 'Lock dates & continue'}
                         </Button>
                       </MagneticButton>
                       <p className="text-center text-[11px] text-ink-3">Secured hold · free cancellation within 48 h</p>

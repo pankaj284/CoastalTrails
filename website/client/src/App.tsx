@@ -24,6 +24,7 @@ const ReservationStatusPage = lazy(() => import('./pages/ReservationStatusPage')
 const DatabaseStudioPage = lazy(() => import('./pages/DatabaseStudioPage').then((m) => ({ default: m.DatabaseStudioPage })));
 const SurveyWorkspacePage = lazy(() => import('./survey/SurveyWorkspacePage').then((m) => ({ default: m.SurveyWorkspacePage })));
 const BookingPage = lazy(() => import('./pages/BookingPage').then((m) => ({ default: m.BookingPage })));
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then((m) => ({ default: m.NotFoundPage })));
 const CommandPalette = lazy(() => import('./components/ui/CommandPalette').then((m) => ({ default: m.CommandPalette })));
 
 function PageFallback() {
@@ -296,7 +297,7 @@ export function App() {
             <Route path="/database" element={<DatabaseStudioPage />} />
             <Route path="/survey" element={<SurveyWorkspacePage />} />
 
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Routes>
           </Suspense>
         </motion.div>

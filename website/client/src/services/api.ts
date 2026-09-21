@@ -138,6 +138,44 @@ export const api = {
     return res.json();
   },
 
+  async cancelBooking(id: string): Promise<Booking> {
+    const res = await fetch(`${API_BASE}/bookings/${id}/cancel`, {
+      method: 'POST',
+      headers: { ...authHeaders() },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.error || 'Failed to cancel the booking');
+    }
+    return res.json();
+  },
+
+  // Payments (simulated gateway: initiate -> confirm verifies server-side)
+  async initiatePayment(bookingId: string, method: string): Promise<{ id: string; amount: number; status: string }> {
+    const res = await fetch(`${API_BASE}/payments/${bookingId}/initiate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ method }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.error || 'Could not start the payment');
+    }
+    return res.json();
+  },
+
+  async confirmPayment(bookingId: string): Promise<{ booking: Booking }> {
+    const res = await fetch(`${API_BASE}/payments/${bookingId}/confirm`, {
+      method: 'POST',
+      headers: { ...authHeaders() },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.error || 'Could not verify the payment');
+    }
+    return res.json();
+  },
+
   // Routes
   async getRoutes(): Promise<TransitRoute[]> {
     const res = await fetch(`${API_BASE}/routes`);

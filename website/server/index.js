@@ -15,6 +15,7 @@ import routesRouter from './routes/routes.js';
 import telemetryRouter from './routes/telemetry.js';
 import authRouter from './routes/auth.js';
 import reviewsRouter from './routes/reviews.js';
+import paymentsRouter from './routes/payments.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -52,6 +53,7 @@ app.use('/api/routes', routesRouter);
 app.use('/api/telemetry', telemetryRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/reviews', reviewsRouter);
+app.use('/api/payments', paymentsRouter);
 app.use('/api', uploadRouter);
 app.use('/api/enclaves', enclavesRouter);
 
@@ -69,7 +71,8 @@ app.get('/api/health', (req, res) => {
       '/api/routes',
       '/api/auth/register',
       '/api/auth/login',
-      '/api/reviews'
+      '/api/reviews',
+      '/api/payments'
     ]
   });
 });

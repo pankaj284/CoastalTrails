@@ -24,6 +24,18 @@ export interface Homestay {
   availableRooms?: number;
 }
 
+export type BookingStatus =
+  | 'pending_payment'
+  | 'awaiting_host'
+  | 'confirmed'
+  | 'checked_in'
+  | 'completed'
+  | 'declined'
+  | 'cancelled'
+  | 'expired';
+
+export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'partially_paid' | 'refunded';
+
 export interface Booking {
   id: string;
   reference_code: string;
@@ -40,7 +52,11 @@ export interface Booking {
   total_amount: number;
   advance_paid: number;
   balance_payable_at_property: number;
-  status: 'awaiting_host' | 'confirmed' | 'declined' | 'cancelled';
+  status: BookingStatus;
+  payment_status?: PaymentStatus;
+  payment_id?: string | null;
+  paid_at?: string | null;
+  room_number?: number | null;
   created_at: string;
   hold_expires_at?: string;
   nights?: number;

@@ -134,6 +134,21 @@ async function runMigrations() {
     );
     console.log('Migration applied: reviews.booking_id column added.');
   }
+
+  // Payment state is tracked separately from the reservation state
+  const [paymentColumns] = await pool.query("SHOW COLUMNS FROM bookings LIKE 'payment_status'");
+  if (paymentColumns.length === 0) {
+    await pool.query("ALTER TABLE bookings ADD COLUMN payment_status VARCHAR(20) DEFAULT 'pending' AFTER status");
+    await pool.query('ALTER TABLE bookings ADD COLUMN payment_id VARCHAR(120) NULL AFTER payment_status');
+    await pool.query('ALTER TABLE bookings ADD COLUMN paid_at DATETIME NULL AFTER payment_id');
+    await pool.query(
+      "UPDATE bookings SET payment_status = CASE WHEN advance_paid > 0 THEN 'paid' ELSE 'pending' END, paid_at = CASE WHEN advance_paid > 0 THEN created_at ELSE NULL END"
+    );
+    await pool.query(
+      "UPDATE bookings SET payment_status = 'refunded' WHERE status IN ('cancelled','declined','expired') AND advance_paid > 0"
+    );
+    console.log('Migration applied: bookings payment columns added (existing paid bookings preserved).');
+  }
 }
 
 // Create the database if missing, then apply the schema
