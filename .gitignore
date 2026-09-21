@@ -51,6 +51,11 @@ website/client/*.log
 website/server/*.log
 website/client/.vite/
 
+# Admin dashboard build artifacts & runtime uploads
+Coastal-admin/dist/
+Coastal-admin/*.log
+website/server/uploads/
+
 # Local SQLite database — regenerate with `npm run seed`
 website/server/db/*.db
 website/server/db/*.db-shm

@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS homestay_images (
     homestay_id VARCHAR(64) NOT NULL,
     image_url VARCHAR(512) NOT NULL,
     sort_order INT DEFAULT 0,
+    category VARCHAR(32) DEFAULT 'general', -- admin dashboard image tagging
     CONSTRAINT fk_images_homestay FOREIGN KEY (homestay_id) REFERENCES homestays(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -68,6 +69,42 @@ CREATE TABLE IF NOT EXISTS room_unavailability (
     UNIQUE KEY uq_stay_date (homestay_id, blocked_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 6b. Per-Room Status Overrides (admin control center)
+CREATE TABLE IF NOT EXISTS room_status (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    homestay_id VARCHAR(64) NOT NULL,
+    room_number INT NOT NULL,
+    date DATE NOT NULL, -- YYYY-MM-DD
+    status VARCHAR(16) NOT NULL DEFAULT 'available', -- 'available', 'maintenance', 'blocked'
+    reason VARCHAR(190),
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_room_status (homestay_id, room_number, date),
+    CONSTRAINT fk_room_status_homestay FOREIGN KEY (homestay_id) REFERENCES homestays(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 6c. Per-Room State (housekeeping, bed setup, capacity, photo)
+CREATE TABLE IF NOT EXISTS room_state (
+    homestay_id VARCHAR(64) NOT NULL,
+    room_number INT NOT NULL,
+    name VARCHAR(120),
+    bed_type VARCHAR(60) DEFAULT 'King Bed',
+    capacity INT DEFAULT 2,
+    housekeeping VARCHAR(16) DEFAULT 'clean', -- 'clean', 'dirty', 'inspecting'
+    photo VARCHAR(512),
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (homestay_id, room_number),
+    CONSTRAINT fk_room_state_homestay FOREIGN KEY (homestay_id) REFERENCES homestays(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 6d. Stay-Level Settings (min stay, festival price override)
+CREATE TABLE IF NOT EXISTS stay_settings (
+    homestay_id VARCHAR(64) PRIMARY KEY,
+    min_stay INT DEFAULT 1,
+    price_override DOUBLE,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_stay_settings_homestay FOREIGN KEY (homestay_id) REFERENCES homestays(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 7. Bookings Table (Shared with 20% Advance / 80% Check-in Model)
 CREATE TABLE IF NOT EXISTS bookings (
     id VARCHAR(64) PRIMARY KEY,
@@ -82,6 +119,7 @@ CREATE TABLE IF NOT EXISTS bookings (
     advance_paid DOUBLE NOT NULL,
     balance_payable_at_property DOUBLE NOT NULL,
     status VARCHAR(32) DEFAULT 'awaiting_host', -- 'awaiting_host', 'confirmed', 'declined', 'cancelled'
+    channel VARCHAR(64) DEFAULT 'Direct website', -- admin dashboard booking channel
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     hold_expires_at DATETIME,
     INDEX idx_bookings_phone (user_phone),
@@ -141,4 +179,11 @@ CREATE TABLE IF NOT EXISTS transit_routes (
     car_mins INT NOT NULL,
     bus_mins INT NOT NULL,
     active_mode VARCHAR(32) DEFAULT 'scooter'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 11. Enclaves (admin dashboard location grouping)
+CREATE TABLE IF NOT EXISTS enclaves (
+    id VARCHAR(64) PRIMARY KEY,
+    label VARCHAR(120) NOT NULL,
+    sort_order INT DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
