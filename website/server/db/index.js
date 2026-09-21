@@ -106,6 +106,12 @@ async function runMigrations() {
     await pool.query("ALTER TABLE bookings ADD COLUMN channel VARCHAR(64) DEFAULT 'Direct website'");
     console.log('Migration applied: bookings.channel column added.');
   }
+
+  const [roomNumberColumns] = await pool.query("SHOW COLUMNS FROM bookings LIKE 'room_number'");
+  if (roomNumberColumns.length === 0) {
+    await pool.query('ALTER TABLE bookings ADD COLUMN room_number INT NULL');
+    console.log('Migration applied: bookings.room_number column added.');
+  }
 }
 
 // Create the database if missing, then apply the schema

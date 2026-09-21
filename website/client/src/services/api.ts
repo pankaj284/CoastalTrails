@@ -72,12 +72,16 @@ export const api = {
     return data.dates || {};
   },
 
-  async getHomestayAvailability(id: string, from: string, to: string): Promise<{ listed: boolean; dates: Record<string, number> }> {
+  async getHomestayAvailability(
+    id: string,
+    from: string,
+    to: string,
+  ): Promise<{ listed: boolean; dates: Record<string, number>; blocked: Record<string, number> }> {
     const q = new URLSearchParams({ from, to });
     const res = await fetch(`${API_BASE}/homestays/${id}/availability?${q.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch stay availability');
     const data = await res.json();
-    return { listed: data.listed !== false, dates: data.dates || {} };
+    return { listed: data.listed !== false, dates: data.dates || {}, blocked: data.blocked || {} };
   },
 
   async createHomestay(data: Partial<Homestay>): Promise<Homestay> {

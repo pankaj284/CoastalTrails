@@ -66,6 +66,7 @@ interface DateRangePickerProps {
   checkOut: string;
   onChange: (checkIn: string, checkOut: string) => void;
   availability?: Record<string, number>;
+  blockedDates?: Record<string, number>;
   fewLeftThreshold?: number;
   className?: string;
 }
@@ -78,7 +79,7 @@ interface PanelPos {
   up: boolean;
 }
 
-export function DateRangePicker({ checkIn, checkOut, onChange, availability, fewLeftThreshold = 3, className }: DateRangePickerProps) {
+export function DateRangePicker({ checkIn, checkOut, onChange, availability, blockedDates, fewLeftThreshold = 3, className }: DateRangePickerProps) {
   const [open, setOpen] = useState(false);
   const [month, setMonth] = useState<Date>(() => startOfDay(parseISO(checkIn) || new Date()));
   const [pos, setPos] = useState<PanelPos | null>(null);
@@ -285,6 +286,8 @@ export function DateRangePicker({ checkIn, checkOut, onChange, availability, few
                   const unavailable = count === 0;
                   const fewLeft = count !== undefined && count > 0 && count <= fewLeftThreshold;
                   const soldOutCheckout = unavailable && checkoutCandidate && iso > checkIn;
+                  const hostBlocked = blockedDates ? blockedDates[iso] || 0 : 0;
+                  const partiallyBlocked = hostBlocked > 0 && !unavailable;
                   return (
                     <button
                       key={iso}
@@ -297,15 +300,20 @@ export function DateRangePicker({ checkIn, checkOut, onChange, availability, few
                           : unavailable
                             ? soldOutCheckout
                               ? 'No rooms this night — can still be your check-out'
-                              : 'Reserved'
-                            : count !== undefined && count > 0
-                              ? `${count} room${count === 1 ? '' : 's'} left`
-                              : undefined
+                              : hostBlocked > 0
+                                ? 'Blocked by host — fully unavailable'
+                                : 'Fully booked'
+                            : partiallyBlocked
+                              ? `${hostBlocked} room${hostBlocked === 1 ? '' : 's'} blocked by host · ${count} left`
+                              : count !== undefined && count > 0
+                                ? `${count} room${count === 1 ? '' : 's'} left`
+                                : undefined
                       }
                       className={cn(
                         'relative mx-auto flex h-9 w-9 items-center justify-center rounded-full font-display text-sm transition-all duration-micro',
                         isPast && !unavailable && 'cursor-not-allowed text-ink-3/30',
-                        unavailable && !soldOutCheckout && 'cursor-not-allowed text-ink-3/60',
+                        unavailable && !soldOutCheckout && 'cursor-not-allowed bg-err/10 text-err/80',
+                        partiallyBlocked && !isCheckIn && !isCheckOut && 'bg-warn/15 text-ink ring-1 ring-inset ring-warn/50',
                         !isPast && !unavailable && !isCheckIn && !isCheckOut && !inRange && 'text-ink hover:bg-paper-2',
                         isToday && !isCheckIn && !isCheckOut && 'ring-1 ring-inset ring-tide',
                         inRange && 'bg-tide-glow/15 text-tide',
@@ -313,13 +321,16 @@ export function DateRangePicker({ checkIn, checkOut, onChange, availability, few
                       )}
                       style={
                         unavailable
-                          ? { backgroundImage: 'repeating-linear-gradient(45deg, var(--c-line) 0 2px, transparent 2px 6px)' }
+                          ? { backgroundImage: 'repeating-linear-gradient(45deg, var(--c-err) 0 2px, transparent 2px 6px)' }
                           : undefined
                       }
                     >
                       {cell.date.getDate()}
                       {fewLeft && !isCheckIn && !isCheckOut ? (
                         <span className="absolute bottom-1 h-1 w-1 rounded-full bg-ember" aria-hidden="true" />
+                      ) : null}
+                      {partiallyBlocked && !isCheckIn && !isCheckOut ? (
+                        <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-warn" aria-hidden="true" />
                       ) : null}
                     </button>
                   );
@@ -358,18 +369,22 @@ export function DateRangePicker({ checkIn, checkOut, onChange, availability, few
                   ) : null
                 ) : null}
                 {availability ? (
-                  <div className="flex items-center gap-4 font-mono text-[10px] text-ink-3">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 font-mono text-[10px] text-ink-3">
                     <span className="flex items-center gap-1.5">
                       <span className="h-1.5 w-1.5 rounded-full bg-ember" aria-hidden="true" />
                       Few rooms left
                     </span>
                     <span className="flex items-center gap-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-warn" aria-hidden="true" />
+                      Host blocked room
+                    </span>
+                    <span className="flex items-center gap-1.5">
                       <span
                         className="h-3.5 w-3.5 rounded-full border border-line"
-                        style={{ backgroundImage: 'repeating-linear-gradient(45deg, var(--c-line) 0 2px, transparent 2px 6px)' }}
+                        style={{ backgroundImage: 'repeating-linear-gradient(45deg, var(--c-err) 0 2px, transparent 2px 6px)' }}
                         aria-hidden="true"
                       />
-                      Reserved
+                      Blocked / sold out
                     </span>
                   </div>
                 ) : null}

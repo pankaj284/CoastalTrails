@@ -163,6 +163,7 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
   }, [id]);
 
   const [stayAvailability, setStayAvailability] = useState<Record<string, number>>({});
+  const [stayBlockedDates, setStayBlockedDates] = useState<Record<string, number>>({});
   const [availabilityListed, setAvailabilityListed] = useState(true);
 
   useEffect(() => {
@@ -176,6 +177,7 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
       .getHomestayAvailability(homestay.id, from, toD.toISOString().split('T')[0])
       .then((res) => {
         setStayAvailability(res.dates);
+        setStayBlockedDates(res.blocked);
         setAvailabilityListed(res.listed);
       })
       .catch((err) => console.error('Failed to load stay availability:', err));
@@ -477,6 +479,7 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
                         checkIn={checkIn}
                         checkOut={checkOut}
                         availability={stayAvailability}
+                        blockedDates={stayBlockedDates}
                         fewLeftThreshold={3}
                         onChange={(ci, co) => {
                           setCheckIn(ci);

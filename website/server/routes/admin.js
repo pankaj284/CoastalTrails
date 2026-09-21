@@ -234,7 +234,7 @@ router.get('/stays/:id/room-status', async (req, res) => {
       all('SELECT blocked_date, reason FROM room_unavailability WHERE homestay_id = ? AND blocked_date >= ? AND blocked_date < ?', [id, start, end]),
       all('SELECT room_number, date, status, reason FROM room_status WHERE homestay_id = ? AND date >= ? AND date < ?', [id, start, end]),
       all(
-        `SELECT id, reference_code, channel, user_name, user_phone, check_in, check_out, guests_count, total_amount, advance_paid, status
+        `SELECT id, reference_code, channel, user_name, user_phone, check_in, check_out, guests_count, total_amount, advance_paid, status, room_number
          FROM bookings WHERE homestay_id = ? AND status IN ('awaiting_host', 'confirmed') AND check_out > ? AND check_in < ?`,
         [id, start, end]
       ),
@@ -249,7 +249,17 @@ router.get('/stays/:id/room-status', async (req, res) => {
     const bookedPerDate = new Map(dates.map((d) => [d, bks.filter((b) => b.check_in <= d && b.check_out > d).length]));
 
     const sortedBks = [...bks].sort((a, b) => a.check_in.localeCompare(b.check_in));
-    const roomAssign = new Map(sortedBks.map((b, i) => [b.id, (i % totalRooms) + 1]));
+    const roomAssign = new Map();
+    let autoCursor = 0;
+    for (const b of sortedBks) {
+      const pinned = Number(b.room_number) || 0;
+      if (pinned >= 1 && pinned <= totalRooms) {
+        roomAssign.set(b.id, pinned);
+      } else {
+        roomAssign.set(b.id, (autoCursor % totalRooms) + 1);
+        autoCursor += 1;
+      }
+    }
 
     const rooms = Array.from({ length: totalRooms }, (_, i) => {
       const number = i + 1;
@@ -346,6 +356,8 @@ router.put('/room-status', async (req, res) => {
         [homestay_id, room_number, date, status, reason ?? null]
       );
     }
+    // Managing room availability publishes the stay to travelers
+    await run('UPDATE homestays SET availability_listed = 1 WHERE id = ?', [homestay_id]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -369,6 +381,7 @@ router.put('/room-state', async (req, res) => {
          updated_at = CURRENT_TIMESTAMP`,
       [homestay_id, room_number, name ?? null, bed_type ?? null, capacity ?? null, housekeeping ?? null, photo ?? null]
     );
+    await run('UPDATE homestays SET availability_listed = 1 WHERE id = ?', [homestay_id]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -388,9 +401,64 @@ router.put('/stay-settings', async (req, res) => {
          updated_at = CURRENT_TIMESTAMP`,
       [homestay_id, min_stay ?? null, price_override ?? null]
     );
+    await run('UPDATE homestays SET availability_listed = 1 WHERE id = ?', [homestay_id]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/bookings - walk-in / phone booking taken at the desk
+router.post('/bookings', async (req, res) => {
+  try {
+    const { homestay_id, room_number, user_name, user_phone, check_in, check_out, guests_count = 2, channel = 'Walk-in' } =
+      req.body || {};
+
+    if (!homestay_id || !user_name || !user_phone || !check_in || !check_out) {
+      return res.status(400).json({ error: 'Guest name, phone and dates are required.' });
+    }
+    const isoPattern = /^\d{4}-\d{2}-\d{2}$/;
+    if (!isoPattern.test(check_in) || !isoPattern.test(check_out)) {
+      return res.status(400).json({ error: 'Dates must use the YYYY-MM-DD format.' });
+    }
+    if (check_out <= check_in) {
+      return res.status(400).json({ error: 'Check-out must be after check-in.' });
+    }
+
+    const stay = await get('SELECT id, title, price_per_night, total_rooms, availability_listed FROM homestays WHERE id = ?', [homestay_id]);
+    if (!stay) return res.status(404).json({ error: 'Homestay not found' });
+
+    const roomNum = Number(room_number) || null;
+    if (roomNum !== null && (roomNum < 1 || roomNum > Number(stay.total_rooms || 1))) {
+      return res.status(400).json({ error: `Room number must be between 1 and ${stay.total_rooms || 1}.` });
+    }
+
+    const start = new Date(`${check_in}T00:00:00`);
+    const end = new Date(`${check_out}T00:00:00`);
+    const nights = Math.max(1, Math.round((end - start) / 86400000));
+    const guests = Math.max(1, Number(guests_count) || 1);
+    const extraGuests = Math.max(0, guests - 2);
+    const total_amount = (Number(stay.price_per_night) + extraGuests * 400) * nights;
+    const advance_paid = 0; // paid directly at the property for walk-ins
+    const balance_payable_at_property = total_amount;
+
+    const id = `bk-${Date.now()}`;
+    const reference_code = `GK-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    await run(
+      `INSERT INTO bookings (id, reference_code, homestay_id, user_name, user_phone, check_in, check_out, guests_count,
+                             total_amount, advance_paid, balance_payable_at_property, status, channel, room_number)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?)`,
+      [id, reference_code, homestay_id, user_name, user_phone, check_in, check_out, guests, total_amount, advance_paid, balance_payable_at_property, channel, roomNum]
+    );
+
+    // Taking a booking means the stay is live for travelers too
+    await run('UPDATE homestays SET availability_listed = 1 WHERE id = ?', [homestay_id]);
+
+    const created = await get('SELECT * FROM bookings WHERE id = ?', [id]);
+    res.status(201).json({ ...created, nights });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not create the booking right now. Please try again.' });
   }
 });
 

@@ -90,6 +90,7 @@ router.get('/:id/availability', async (req, res) => {
       listed: map.listed,
       total_rooms: map.total_rooms,
       dates: map.dates,
+      blocked: map.blockedByHost,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

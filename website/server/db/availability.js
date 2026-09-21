@@ -73,11 +73,31 @@ export async function getRoomsLeftMap(homestayId, from, to) {
     }
   }
 
-  for (const d of fullyBlocked) {
-    if (roomsLeft[d] !== undefined) roomsLeft[d] = 0;
+  // Admin room blocks (maintenance / private use / channel sync) close those rooms to travelers
+  const blockedByHost = {};
+  const roomOverrides = await all(
+    `SELECT date, COUNT(*) AS blocked_rooms FROM room_status
+     WHERE homestay_id = ? AND date >= ? AND date < ? AND status IN ('blocked', 'maintenance')
+     GROUP BY date`,
+    [homestayId, isoDate(from), isoDate(to)]
+  );
+  for (const o of roomOverrides) {
+    const d = isoDate(o.date);
+    if (roomsLeft[d] !== undefined) {
+      const blockedCount = Number(o.blocked_rooms || 0);
+      roomsLeft[d] = Math.max(0, roomsLeft[d] - blockedCount);
+      blockedByHost[d] = blockedCount;
+    }
   }
 
-  return { total_rooms: stay.total_rooms, listed: !!stay.availability_listed, dates: roomsLeft };
+  for (const d of fullyBlocked) {
+    if (roomsLeft[d] !== undefined) {
+      roomsLeft[d] = 0;
+      blockedByHost[d] = stay.total_rooms;
+    }
+  }
+
+  return { total_rooms: stay.total_rooms, listed: !!stay.availability_listed, dates: roomsLeft, blockedByHost };
 }
 
 // Rooms left per night across every published homestay (used by the explore date picker)

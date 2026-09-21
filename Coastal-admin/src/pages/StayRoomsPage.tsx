@@ -109,6 +109,8 @@ export default function StayRoomsPage() {
   const [drag, setDrag] = useState<DragSel | null>(null);
   const [dragModal, setDragModal] = useState<DragSel | null>(null);
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [walkInFor, setWalkInFor] = useState<DragSel | null>(null);
+  const [applyAllRooms, setApplyAllRooms] = useState(true);
   const [inspect, setInspect] = useState<RoomSegment | null>(null);
   const [inspectRoom, setInspectRoom] = useState<RoomRow | null>(null);
   const [extendFor, setExtendFor] = useState<RoomSegment | null>(null);
@@ -211,8 +213,13 @@ export default function StayRoomsPage() {
         if (next === d) break;
         d = next;
       }
+      const roomNumbers = applyAllRooms
+        ? Array.from({ length: data?.stay.total_rooms || 1 }, (_, i) => i + 1)
+        : [range.room];
       await Promise.all(
-        dates.map((date) => api.setRoomStatus({ homestay_id: id, room_number: range.room, date, status, reason })),
+        roomNumbers.flatMap((room) =>
+          dates.map((date) => api.setRoomStatus({ homestay_id: id, room_number: room, date, status, reason })),
+        ),
       );
       await load(true);
     } finally {
@@ -632,6 +639,18 @@ export default function StayRoomsPage() {
             <p className="font-mono text-[11px] text-ink-3">
               {diffDays(dragModal.start, dragModal.end) + 1} night{diffDays(dragModal.start, dragModal.end) > 0 ? 's' : ''} selected
             </p>
+            <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-line-2 bg-paper-2 px-3 py-2.5 text-xs font-semibold text-ink">
+              <input
+                type="checkbox"
+                checked={applyAllRooms}
+                onChange={(e) => setApplyAllRooms(e.target.checked)}
+                className="h-4 w-4 accent-tide"
+              />
+              <span>
+                Apply to all {data?.stay.total_rooms ?? ''} rooms
+                {!applyAllRooms ? <span className="text-ink-3"> · only Room {dragModal.room}</span> : null}
+              </span>
+            </label>
             <div className="space-y-2">
               {BLOCK_REASONS.map((reason) => (
                 <button
@@ -663,17 +682,43 @@ export default function StayRoomsPage() {
                 <Icon icon="lucide:circle-check" className="h-4 w-4 text-ok" />
                 Free the dates
               </button>
-              <a
-                href={`http://127.0.0.1:4173/stay/${data.stay.id}`}
-                target="_blank"
-                rel="noreferrer"
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setWalkInFor(dragModal);
+                  setDragModal(null);
+                }}
                 className="flex w-full items-center gap-2 rounded-lg border border-line px-3 py-2.5 text-left text-xs font-semibold text-ink transition-colors hover:border-tide/40 hover:bg-tide/5"
               >
                 <Icon icon="lucide:user-plus" className="h-4 w-4 text-tide" />
                 Direct booking (walk-in) →
-              </a>
+              </button>
             </div>
           </div>
+        )}
+      </Dialog>
+
+      <Dialog
+        open={!!walkInFor}
+        onClose={() => setWalkInFor(null)}
+        title={
+          walkInFor
+            ? `Walk-in booking · Room ${walkInFor.room} · ${fmtDate(walkInFor.start)} → ${fmtDate(walkInFor.end)}`
+            : ''
+        }
+      >
+        {walkInFor && (
+          <WalkInForm
+            stayId={data.stay.id}
+            room={walkInFor.room}
+            start={walkInFor.start}
+            end={walkInFor.end}
+            onDone={() => {
+              setWalkInFor(null);
+              load(true);
+            }}
+          />
         )}
       </Dialog>
 
@@ -1057,6 +1102,93 @@ function RulesForm({
       </div>
       <Button className="w-full" disabled={busy} onClick={save}>
         Save rules
+      </Button>
+    </div>
+  );
+}
+
+function WalkInForm({
+  stayId,
+  room,
+  start,
+  end,
+  onDone,
+}: {
+  stayId: string;
+  room: number;
+  start: string;
+  end: string;
+  onDone: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('+91');
+  const [guests, setGuests] = useState('2');
+  const [channel, setChannel] = useState('Walk-in');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const nights = diffDays(start, end) + 1;
+
+  async function save() {
+    if (!name.trim() || phone.replace(/\D/g, '').length < 10) {
+      setError('Enter the guest name and a valid phone number.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      await api.createAdminBooking({
+        homestay_id: stayId,
+        room_number: room,
+        user_name: name.trim(),
+        user_phone: phone.trim(),
+        check_in: start,
+        check_out: addDays(end, 1),
+        guests_count: Math.max(1, parseInt(guests, 10) || 2),
+        channel,
+      });
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not create the booking.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const field =
+    'w-full rounded-xl border border-line-2 bg-elevated px-3.5 py-2.5 text-sm text-ink transition-colors focus:border-tide focus:outline-none focus:ring-2 focus:ring-tide/30';
+
+  return (
+    <div className="space-y-4">
+      <p className="font-mono text-[11px] text-ink-3">
+        {fmtDate(start)} → {fmtDate(addDays(end, 1))} · {nights} night{nights > 1 ? 's' : ''} · paid at the property
+      </p>
+      <div className="space-y-1.5">
+        <label className="font-mono text-[10px] uppercase tracking-wider text-ink-3">Guest name</label>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Ravi Kumar" className={field} />
+      </div>
+      <div className="space-y-1.5">
+        <label className="font-mono text-[10px] uppercase tracking-wider text-ink-3">Phone / WhatsApp</label>
+        <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 …" className={field} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <label className="font-mono text-[10px] uppercase tracking-wider text-ink-3">Guests</label>
+          <input type="number" min={1} max={10} value={guests} onChange={(e) => setGuests(e.target.value)} className={field} />
+        </div>
+        <div className="space-y-1.5">
+          <label className="font-mono text-[10px] uppercase tracking-wider text-ink-3">Channel</label>
+          <select value={channel} onChange={(e) => setChannel(e.target.value)} className={field}>
+            <option>Walk-in</option>
+            <option>Phone call</option>
+            <option>Channel sync</option>
+            <option>OTA / Agency</option>
+          </select>
+        </div>
+      </div>
+      {error ? <p className="text-xs font-semibold text-err">{error}</p> : null}
+      <Button className="w-full" disabled={busy} onClick={save}>
+        {busy ? 'Creating booking…' : 'Create walk-in booking'}
       </Button>
     </div>
   );

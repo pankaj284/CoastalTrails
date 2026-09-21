@@ -12,6 +12,7 @@ export interface Homestay {
   is_host_verified: number | boolean;
   walking_minutes_to_beach: number;
   total_rooms: number;
+  availability_listed?: number | boolean;
   description: string;
   imageUrls: string[];
   imageCategories?: string[];

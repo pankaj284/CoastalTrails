@@ -120,6 +120,7 @@ CREATE TABLE IF NOT EXISTS bookings (
     balance_payable_at_property DOUBLE NOT NULL,
     status VARCHAR(32) DEFAULT 'awaiting_host', -- 'awaiting_host', 'confirmed', 'declined', 'cancelled'
     channel VARCHAR(64) DEFAULT 'Direct website', -- admin dashboard booking channel
+    room_number INT, -- set for admin-created (walk-in) bookings
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     hold_expires_at DATETIME,
     INDEX idx_bookings_phone (user_phone),

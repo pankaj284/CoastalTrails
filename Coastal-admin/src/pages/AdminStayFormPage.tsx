@@ -57,6 +57,7 @@ const empty = {
   location_display: 'Kudle Beach',
   price_per_night: '',
   total_rooms: '2',
+  availability_listed: '1',
   walking_minutes_to_beach: '5',
   host_name: '',
   host_whatsapp: '',
@@ -99,6 +100,7 @@ export function AdminStayFormPage() {
             location_display: s.location_display,
             price_per_night: String(s.price_per_night),
             total_rooms: String(s.total_rooms),
+            availability_listed: s.availability_listed ? '1' : '0',
             walking_minutes_to_beach: String(s.walking_minutes_to_beach),
             host_name: s.host_name,
             host_whatsapp: s.host_whatsapp,
@@ -177,6 +179,7 @@ export function AdminStayFormPage() {
       location_display: BEACHES.find((b) => b.id === form.location)?.label ?? form.location_display,
       price_per_night: Number(form.price_per_night),
       total_rooms: Number(form.total_rooms) || 2,
+      availability_listed: Number(form.availability_listed) ? 1 : 0,
       walking_minutes_to_beach: Number(form.walking_minutes_to_beach) || 5,
       host_name: form.host_name.trim(),
       host_whatsapp: form.host_whatsapp.trim(),
@@ -289,6 +292,19 @@ export function AdminStayFormPage() {
           </Field>
           <Field label="Rooms">
             <Input type="number" min={1} max={50} value={form.total_rooms} onChange={(e) => set('total_rooms', e.target.value)} />
+          </Field>
+          <Field label="Publish availability">
+            <label className="flex h-11 cursor-pointer items-center gap-2.5 rounded-xl border border-line-2 bg-elevated px-4 text-sm text-ink transition-colors hover:border-tide">
+              <input
+                type="checkbox"
+                checked={form.availability_listed === '1'}
+                onChange={(e) => set('availability_listed', e.target.checked ? '1' : '0')}
+                className="h-4 w-4 accent-tide"
+              />
+              <span className="text-xs font-semibold">
+                {form.availability_listed === '1' ? 'Visible & bookable' : 'Hidden from travelers'}
+              </span>
+            </label>
           </Field>
         </div>
 

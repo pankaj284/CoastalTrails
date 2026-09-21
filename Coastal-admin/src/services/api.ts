@@ -229,4 +229,20 @@ export const api = {
       body: JSON.stringify({ check_out }),
     });
   },
+  createAdminBooking(payload: {
+    homestay_id: string;
+    room_number?: number;
+    user_name: string;
+    user_phone: string;
+    check_in: string;
+    check_out: string;
+    guests_count?: number;
+    channel?: string;
+  }): Promise<Booking> {
+    return request('/admin/bookings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  },
 };

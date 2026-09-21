@@ -145,6 +145,7 @@ export function StayDetailPage({ homestay: propHomestay, currentUser = null, onB
   }, [homestay]);
 
   const [stayAvailability, setStayAvailability] = useState<Record<string, number>>({});
+  const [stayBlockedDates, setStayBlockedDates] = useState<Record<string, number>>({});
   const [availabilityListed, setAvailabilityListed] = useState(true);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [reviewTotal, setReviewTotal] = useState(0);
@@ -344,6 +345,7 @@ export function StayDetailPage({ homestay: propHomestay, currentUser = null, onB
       .getHomestayAvailability(homestay.id, from, toD.toISOString().split('T')[0])
       .then((res) => {
         setStayAvailability(res.dates);
+        setStayBlockedDates(res.blocked);
         setAvailabilityListed(res.listed);
       })
       .catch((err) => console.error('Failed to load stay availability:', err));
@@ -974,6 +976,7 @@ export function StayDetailPage({ homestay: propHomestay, currentUser = null, onB
                 checkIn={checkIn}
                 checkOut={checkOut}
                 availability={stayAvailability}
+                blockedDates={stayBlockedDates}
                 fewLeftThreshold={3}
                 onChange={(ci, co) => {
                   setCheckIn(ci);
