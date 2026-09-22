@@ -123,18 +123,18 @@ function receiptRows(booking, paymentState) {
         </table>`;
 }
 
-function voucher({ booking, stay, paymentState, statusPill, extraBlock }) {
+function voucher({ booking, stay, paymentState, statusPill, cta }) {
   const n = nights(booking);
   const roomLabel = booking.room_number ? `Room ${booking.room_number}` : 'Private Chalet';
   return `
-        <table role="presentation" class="email-container" width="620" border="0" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;background-color:#ffffff;border:1px solid #e3decb;border-radius:16px;overflow:hidden;box-shadow:0 6px 24px rgba(15,61,53,0.07);">
+        <table role="presentation" class="email-container" width="100%" border="0" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;background-color:#ffffff;border:1px solid #e3decb;border-radius:16px;overflow:hidden;box-shadow:0 6px 24px rgba(15,61,53,0.07);">
 
           <tr>
             <td style="padding:18px 24px;background:linear-gradient(to right,#faf9f5,#f5f3ec);border-bottom:1px solid #eae5d4;">
               <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
                 <tr>
                   <td width="76" valign="middle" style="padding-right:14px;">
-                    <img src="cid:coastallogo" alt="Coastal Trails" width="68" height="68" style="display:block;width:68px;height:auto;border:0;border-radius:12px;background:#fff;">
+                    <img src="cid:coastallogo" alt="Coastal Trails" width="68" height="68" style="display:block;width:68px;height:auto;border:0;background:transparent;">
                   </td>
                   <td valign="middle" class="mobile-stack">
                     <table role="presentation" border="0" cellpadding="0" cellspacing="0">
@@ -163,7 +163,7 @@ function voucher({ booking, stay, paymentState, statusPill, extraBlock }) {
             <td style="padding:24px 24px 18px 24px;">
               <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td width="125" valign="top" style="padding-right:18px;" class="mobile-stack">
+                  <td width="125" valign="top" style="padding-right:18px;width:22%;" class="mobile-stack">
                     ${stay.image ? `<img src="${escapeHtml(stay.image)}" alt="${escapeHtml(stay.title)}" width="125" height="92" style="border-radius:10px;display:block;object-fit:cover;border:1px solid #e3decb;">` : ''}
                   </td>
                   <td valign="top" class="mobile-stack">
@@ -255,7 +255,7 @@ function voucher({ booking, stay, paymentState, statusPill, extraBlock }) {
             <td style="padding:24px;">
               <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td width="260" valign="top" class="mobile-stack mobile-border-bottom" style="padding-right:20px;">
+                  <td width="46%" valign="top" class="mobile-stack mobile-border-bottom" style="padding-right:20px;width:46%;">
                     <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color:#faf9f4;border:1px solid #e7e3d4;border-radius:12px;padding:18px 16px;text-align:center;">
                       <tr>
                         <td align="center">
@@ -290,14 +290,17 @@ function voucher({ booking, stay, paymentState, statusPill, extraBlock }) {
                     <div style="margin-top:14px;background-color:#f7f6ef;border-radius:8px;padding:8px 12px;font-size:11px;color:#697471;">
                       Accepted at front desk: UPI (GPay/PhonePe), Card tap, or Cash.
                     </div>
+                    ${cta ? `
+                    <div style="margin-top:16px;text-align:center;">
+                      <a href="${cta.href}" style="display:inline-block;background-color:#0f3d35;color:#ffffff;text-decoration:none;font-weight:700;font-size:13px;padding:12px 26px;border-radius:10px;">${cta.label}</a>
+                    </div>` : ''}
                   </td>
                 </tr>
               </table>
             </td>
           </tr>
 
-          ${extraBlock || ''}
-
+          ${''}
           <tr>
             <td style="padding:0 24px 24px 24px;">
               <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color:#faf9f5;border:1px solid #ede8d8;border-radius:10px;padding:14px 18px;font-size:11px;color:#5f6c68;line-height:18px;">
@@ -372,21 +375,6 @@ function emailShell({ title, inner }) {
 </html>`;
 }
 
-function retryBlock(ctaLabel, ctaHref) {
-  return `
-          <tr class="no-print">
-            <td style="padding:0 24px 22px 24px;">
-              <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="text-align:center;">
-                <tr>
-                  <td align="center">
-                    <a href="${ctaHref}" style="display:inline-block;background-color:#0f3d35;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:10px;">${ctaLabel}</a>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>`;
-}
-
 async function send({ to, subject, html, label, qrText }) {
   const transporter = getTransporter();
   if (!transporter || !to) {
@@ -396,6 +384,7 @@ async function send({ to, subject, html, label, qrText }) {
   const qrBuffer = qrText
     ? await QRCode.toBuffer(qrText, { width: 280, margin: 1, color: { dark: '#0f3d35', light: '#ffffff' } })
     : null;
+  const usedIcons = ICON_NAMES.filter((name) => html.includes(`cid:icon-${name}`));
   await transporter.sendMail({
     from: `"Coastal Trails" <${process.env.SMTP_USER}>`,
     replyTo: process.env.MAIL_REPLY_TO || 'support@coastaltrails.in',
@@ -404,15 +393,15 @@ async function send({ to, subject, html, label, qrText }) {
     html,
     attachments: [
       { filename: 'brand-logo.png', path: LOGO_PATH, cid: 'coastallogo' },
-      ...ICON_NAMES.map((name) => ({
+      ...usedIcons.map((name) => ({
         filename: `${name}.png`,
         path: path.join(ICON_DIR, `${name}.png`),
         cid: `icon-${name}`,
       })),
-      ...(qrBuffer ? [{ filename: 'qr.png', content: qrBuffer, cid: 'qrcode' }] : []),
+      ...(qrBuffer && html.includes('cid:qrcode') ? [{ filename: 'qr.png', content: qrBuffer, cid: 'qrcode' }] : []),
     ],
   });
-  console.log(`[mail] ${label} sent → ${to}`);
+  console.log(`[mail] ${label} sent → ${to} (${usedIcons.length} icons)`);
   return { sent: true };
 }
 
@@ -434,9 +423,13 @@ export async function sendPaymentFailedEmail({ to, booking, stayTitle, location,
   const stay = { title: stayTitle, location, image: stayImage };
   const html = emailShell({
     title: `Payment failed - Retry your hold | Coastal Trails`,
-    inner:
-      voucher({ booking, stay, paymentState: 'failed', statusPill: PILLS.failed() }) +
-      retryBlock('Retry payment', `${SITE_URL}/bookings`),
+    inner: voucher({
+      booking,
+      stay,
+      paymentState: 'failed',
+      statusPill: PILLS.failed(),
+      cta: { label: 'Retry payment', href: `${SITE_URL}/bookings` },
+    }),
   });
   return send({ to, subject: `Payment failed · ${booking.reference_code} — retry your 20% hold`, html, label: `payment failed email for ${booking.reference_code}`, qrText: qrTextFor(booking) });
 }
@@ -445,9 +438,13 @@ export async function sendHoldCreatedEmail({ to, booking, stayTitle, location, h
   const stay = { title: stayTitle, location, image: stayImage };
   const html = emailShell({
     title: `Booking Voucher & Pass - ${stayTitle} | Coastal Trails`,
-    inner:
-      voucher({ booking, stay, paymentState: 'pending', statusPill: PILLS.pending() }) +
-      retryBlock('Pay 20% hold now', `${SITE_URL}/bookings`),
+    inner: voucher({
+      booking,
+      stay,
+      paymentState: 'pending',
+      statusPill: PILLS.pending(),
+      cta: { label: 'Pay 20% hold now', href: `${SITE_URL}/bookings` },
+    }),
   });
   return send({ to, subject: `Hold created · ${booking.reference_code} — complete your payment`, html, label: `hold email for ${booking.reference_code}`, qrText: qrTextFor(booking) });
 }
