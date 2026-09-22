@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import Razorpay from 'razorpay';
 import { all, get, run } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
+import { sendPaymentSuccessEmail } from '../services/mail.js';
 
 const router = express.Router();
 
@@ -38,7 +39,35 @@ async function markBookingPaid(booking, payment, paymentId) {
      WHERE id = ?`,
     [paymentId, payment.amount, Number(booking.total_amount) - Number(payment.amount), booking.id]
   );
-  return get('SELECT * FROM bookings WHERE id = ?', [booking.id]);
+  const updated = await get('SELECT * FROM bookings WHERE id = ?', [booking.id]);
+  void notifyBookingPaid(updated);
+  return updated;
+}
+
+async function notifyBookingPaid(booking) {
+  try {
+    const user = await get('SELECT email FROM users WHERE id = ? OR phone = ?', [booking.user_id, booking.user_phone]);
+    const stay = await get(
+      'SELECT title, location_display, host_name, host_whatsapp FROM homestays WHERE id = ?',
+      [booking.homestay_id]
+    );
+    const to = user?.email || booking.user_email;
+    if (!to) {
+      console.log(`[mail] No email on file for booking ${booking.reference_code} — skipped.`);
+      return;
+    }
+    await sendPaymentSuccessEmail({
+      to,
+      booking,
+      stayTitle: stay?.title || 'Your stay',
+      location: stay?.location_display || '',
+      hostName: stay?.host_name || '',
+      hostWhatsapp: stay?.host_whatsapp || '',
+      guestName: booking.user_name,
+    });
+  } catch (err) {
+    console.error('[mail] Failed to send payment email:', err.message);
+  }
 }
 
 async function markPaymentFailed(booking, payment) {
