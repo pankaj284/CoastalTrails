@@ -366,7 +366,7 @@ async function send({ to, subject, html, label, qrText }) {
   const qrBuffer = qrText
     ? await QRCode.toBuffer(qrText, { width: 280, margin: 1, color: { dark: '#0f3d35', light: '#ffffff' } })
     : null;
-  const usedIcons = ICON_NAMES.filter((name) => html.includes(`cid:icon-${name}`));
+  const usedIcons = ICON_NAMES.filter((name) => html.includes(`cid:icon-${name}"`));
   await transporter.sendMail({
     from: `"Coastal Trails" <${process.env.SMTP_USER}>`,
     replyTo: process.env.MAIL_REPLY_TO || 'support@coastaltrails.in',
