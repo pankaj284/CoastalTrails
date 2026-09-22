@@ -127,6 +127,7 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [confirmed, setConfirmed] = useState<Booking | null>(null);
+  const [payResult, setPayResult] = useState<'success' | 'failed' | null>(null);
   const [pendingBooking, setPendingBooking] = useState<Booking | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
   const [paying, setPaying] = useState(false);
@@ -294,11 +295,13 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
               razorpay_payment_id: r.razorpay_payment_id,
               razorpay_signature: r.razorpay_signature,
             });
+            setPayResult('success');
             setPendingBooking(null);
             setConfirmed(booking);
           } catch {
             const synced = await api.syncPayment(pendingBooking.id).catch(() => null);
             if (synced && synced.booking.payment_status === 'paid') {
+              setPayResult('success');
               setPendingBooking(null);
               setConfirmed(synced.booking);
             } else {
@@ -308,11 +311,13 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
         },
         onFail: async (message) => {
           await api.failPayment(pendingBooking.id).catch(() => {});
-          setPaymentError(message || 'Payment failed. You can retry.');
+          setPayResult('failed');
+          setPaymentError(message || 'Your payment was declined.');
         },
         onCancel: async () => {
           const synced = await api.syncPayment(pendingBooking.id).catch(() => null);
           if (synced && synced.booking.payment_status === 'paid') {
+            setPayResult('success');
             setPendingBooking(null);
             setConfirmed(synced.booking);
           } else {
@@ -401,8 +406,10 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
             </div>
 
             <div className="space-y-2">
-              <p className="overline">Hold secured</p>
-              <h1 className="font-display text-3xl font-semibold tracking-tight text-ink">Your dates are locked</h1>
+              <p className="overline">{confirmed.payment_status === 'paid' ? 'Payment successful' : 'Hold secured'}</p>
+              <h1 className="font-display text-3xl font-semibold tracking-tight text-ink">
+                {confirmed.payment_status === 'paid' ? 'Your stay is booked' : 'Your dates are locked'}
+              </h1>
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -446,6 +453,61 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
                   Coordinate arrival
                 </a>
               ) : null}
+            </div>
+          </motion.div>
+        ) : payResult === 'failed' && pendingBooking ? (
+          <motion.div
+            key="failed"
+            initial={{ opacity: 0, scale: 0.97 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.4, ease: easeOut }}
+            className="mx-auto max-w-lg space-y-6 text-center"
+          >
+            <div className="mx-auto w-fit">
+              <motion.svg viewBox="0 0 52 52" className="h-20 w-20">
+                <motion.circle
+                  cx="26"
+                  cy="26"
+                  r="24"
+                  fill="none"
+                  stroke="var(--c-err)"
+                  strokeWidth="2"
+                  initial={{ pathLength: 0 }}
+                  animate={{ pathLength: 1 }}
+                  transition={{ duration: 0.6, ease: 'easeOut' }}
+                />
+                <motion.path
+                  d="M18 18 L34 34 M34 18 L18 34"
+                  fill="none"
+                  stroke="var(--c-err)"
+                  strokeWidth="3"
+                  strokeLinecap="round"
+                  initial={{ pathLength: 0 }}
+                  animate={{ pathLength: 1 }}
+                  transition={{ duration: 0.4, delay: 0.55, ease: 'easeOut' }}
+                />
+              </motion.svg>
+            </div>
+
+            <div className="space-y-2">
+              <p className="overline !text-err">Payment failed</p>
+              <h1 className="font-display text-3xl font-semibold tracking-tight text-ink">We couldn't complete your payment</h1>
+              <p className="mx-auto max-w-sm text-sm text-ink-2">{paymentError || 'Your payment was declined. Nothing was charged.'}</p>
+              <div className="mx-auto w-fit rounded-xl border border-line bg-elevated px-4 py-2 font-mono-data text-lg font-semibold text-ink">
+                {pendingBooking.reference_code}
+              </div>
+              <p className="font-mono text-[11px] uppercase tracking-wider text-ok">
+                Your dates are still held — retry or pay later from My Bookings.
+              </p>
+            </div>
+
+            <div className="flex flex-col justify-center gap-3 sm:flex-row">
+              <Button onClick={payNow} disabled={paying}>
+                {paying ? 'Retrying…' : 'Retry payment'}
+              </Button>
+              <Button variant="secondary" onClick={() => navigate('/bookings')}>
+                Pay later
+              </Button>
             </div>
           </motion.div>
         ) : pendingBooking ? (

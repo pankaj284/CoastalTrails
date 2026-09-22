@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   Search,
   Clock,
@@ -114,6 +116,7 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
   const [payMethod, setPayMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
   const [payingHold, setPayingHold] = useState(false);
   const syncingRef = useRef(false);
+  const [payResult, setPayResult] = useState<{ kind: 'success' | 'failed'; message?: string } | null>(null);
 
   const fetchBookings = async (silent = false) => {
     if (!currentUser) {
@@ -228,17 +231,17 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
             await api.syncPayment(selectedBooking.id).catch(() => {});
           }
           await refreshBooking(selectedBooking.id);
-          setNotice('Payment received — your booking has been sent to the host.');
+          setPayResult({ kind: 'success' });
         },
         onFail: async (message) => {
           await api.failPayment(selectedBooking.id).catch(() => {});
-          setNotice(message || 'Payment failed. You can retry.');
+          setPayResult({ kind: 'failed', message });
         },
         onCancel: async () => {
           const synced = await api.syncPayment(selectedBooking.id).catch(() => null);
           if (synced && synced.booking.payment_status === 'paid') {
             await refreshBooking(selectedBooking.id);
-            setNotice('Payment received — your booking has been sent to the host.');
+            setPayResult({ kind: 'success' });
           } else {
             setNotice('Payment window closed — you can pay anytime from this page.');
           }
@@ -804,6 +807,129 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
             </div>
           ))}
         </div>
+      )}
+
+      {createPortal(
+        <AnimatePresence>
+          {payResult && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4 backdrop-blur-sm"
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.94, y: 12 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.96, y: 8 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 26 }}
+                className="w-full max-w-md rounded-3xl border border-line bg-elevated p-8 text-center shadow-2xl"
+              >
+                {payResult.kind === 'success' ? (
+                  <motion.svg viewBox="0 0 52 52" className="mx-auto h-20 w-20">
+                    <motion.circle
+                      cx="26"
+                      cy="26"
+                      r="24"
+                      fill="none"
+                      stroke="var(--c-ok)"
+                      strokeWidth="2"
+                      initial={{ pathLength: 0 }}
+                      animate={{ pathLength: 1 }}
+                      transition={{ duration: 0.6, ease: 'easeOut' }}
+                    />
+                    <motion.path
+                      d="M14 27 L22 35 L38 17"
+                      fill="none"
+                      stroke="var(--c-ok)"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      initial={{ pathLength: 0 }}
+                      animate={{ pathLength: 1 }}
+                      transition={{ duration: 0.4, delay: 0.55, ease: 'easeOut' }}
+                    />
+                  </motion.svg>
+                ) : (
+                  <motion.svg viewBox="0 0 52 52" className="mx-auto h-20 w-20">
+                    <motion.circle
+                      cx="26"
+                      cy="26"
+                      r="24"
+                      fill="none"
+                      stroke="var(--c-err)"
+                      strokeWidth="2"
+                      initial={{ pathLength: 0 }}
+                      animate={{ pathLength: 1 }}
+                      transition={{ duration: 0.6, ease: 'easeOut' }}
+                    />
+                    <motion.path
+                      d="M18 18 L34 34 M34 18 L18 34"
+                      fill="none"
+                      stroke="var(--c-err)"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      initial={{ pathLength: 0 }}
+                      animate={{ pathLength: 1 }}
+                      transition={{ duration: 0.4, delay: 0.55, ease: 'easeOut' }}
+                    />
+                  </motion.svg>
+                )}
+
+                <p className={cn('overline mt-6', payResult.kind === 'failed' && '!text-err')}>
+                  {payResult.kind === 'success' ? 'Payment successful' : 'Payment failed'}
+                </p>
+                <h2 className="mt-2 font-display text-2xl font-semibold tracking-tight text-ink">
+                  {payResult.kind === 'success'
+                    ? 'Your stay is booked'
+                    : "We couldn't complete your payment"}
+                </h2>
+                <p className="mt-2 text-sm text-ink-2">
+                  {payResult.kind === 'success'
+                    ? 'The 20% hold is paid — your booking has been sent to the host for confirmation.'
+                    : payResult.message || 'Your payment was declined. Nothing was charged — your dates are still held.'}
+                </p>
+
+                <div className="mt-4 flex items-end justify-center gap-0.5" aria-hidden="true">
+                  {[8, 14, 20, 26, 20, 14, 8].map((h, i) => (
+                    <motion.span
+                      key={i}
+                      initial={{ height: 4, opacity: 0 }}
+                      animate={{ height: h, opacity: 1 }}
+                      transition={{ delay: 0.5 + i * 0.06, type: 'spring', stiffness: 300, damping: 18 }}
+                      className={cn('w-1 rounded-full', payResult.kind === 'success' ? 'bg-tide-glow' : 'bg-err/50')}
+                    />
+                  ))}
+                </div>
+
+                <div className="mt-6 flex flex-col justify-center gap-2.5 sm:flex-row">
+                  {payResult.kind === 'success' ? (
+                    <Button className="flex-1" onClick={() => setPayResult(null)}>
+                      View my booking
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        className="flex-1"
+                        disabled={payingHold}
+                        onClick={() => {
+                          setPayResult(null);
+                          void handleCompletePayment();
+                        }}
+                      >
+                        {payingHold ? 'Retrying…' : 'Retry payment'}
+                      </Button>
+                      <Button variant="secondary" className="flex-1" onClick={() => setPayResult(null)}>
+                        Pay later
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body,
       )}
     </div>
   );
