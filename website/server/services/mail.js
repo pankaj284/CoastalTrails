@@ -5,7 +5,10 @@ import { fileURLToPath } from 'url';
 const SITE_URL = process.env.SITE_URL || 'https://coastaltrails.in';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const LOGO_PATH = path.resolve(__dirname, '../assets/coastal-trails-logo.png');
+const LOGO_PATH = path.resolve(__dirname, '../assets/brand-logo.png');
+const ICON_DIR = path.resolve(__dirname, '../assets/icons');
+
+const ICON_NAMES = ['check-circle', 'calendar-days', 'moon', 'log-out', 'shield-check', 'credit-card', 'message-circle', 'bell', 'lock', 'x-circle', 'map-pin'];
 
 // Deep Water Cartography — light "Chart Paper" theme (from website/client/DESIGN.md)
 const T = {
@@ -77,8 +80,12 @@ function nights(booking) {
   return Math.max(1, Math.round((b - a) / 86400000));
 }
 
-function overline(label, tone = T.tide) {
-  return `<span style="font-family:${FONT_MONO};font-size:11px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${tone};">${label}</span>`;
+function overline(label, tone = T.tide, iconName) {
+  return `<span style="font-family:${FONT_MONO};font-size:11px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${tone};">${iconName ? `<img src="cid:icon-${iconName}" width="13" height="13" style="vertical-align:-2px;margin-right:6px;border:0;">` : ''}${label}</span>`;
+}
+
+function iconImg(name, size = 14) {
+  return `<img src="cid:icon-${name}" width="${size}" height="${size}" style="vertical-align:-2px;border:0;display:inline-block;">`;
 }
 
 function statusStamp(status, paymentStatus) {
@@ -94,9 +101,9 @@ function statusStamp(status, paymentStatus) {
 
 function itineraryRow(booking) {
   const n = nights(booking);
-  const node = (emoji, date, caption, borderColor) => `
+  const node = (iconName, date, caption, borderColor) => `
     <td align="center" valign="top" style="padding:0 4px;">
-      <div style="width:30px;height:30px;border-radius:50%;border:2px solid ${borderColor};background:${T.elevated};display:inline-block;line-height:26px;font-size:13px;">${emoji}</div>
+      <div style="width:32px;height:32px;border-radius:50%;border:2px solid ${borderColor};background:${T.elevated};display:inline-block;line-height:28px;text-align:center;">${iconImg(iconName, 15)}</div>
       <div style="font-family:${FONT_MONO};font-size:12px;font-weight:600;color:${T.ink};margin-top:8px;">${date}</div>
       <div style="font-size:10px;color:${T.ink3};margin-top:2px;">${caption}</div>
     </td>`;
@@ -104,11 +111,11 @@ function itineraryRow(booking) {
   return `
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px;">
       <tr>
-        ${node('📅', escapeHtml(booking.check_in), 'Check-in · after 12:00', T.tide)}
+        ${node('calendar-days', escapeHtml(booking.check_in), 'Check-in · after 12:00', T.tide)}
         ${line}
-        ${node('🌙', `${n} night${n > 1 ? 's' : ''}`, `${booking.guests_count} guest${booking.guests_count > 1 ? 's' : ''} · 1 room`, T.ember)}
+        ${node('moon', `${n} night${n > 1 ? 's' : ''}`, `${booking.guests_count} guest${booking.guests_count > 1 ? 's' : ''} · 1 room`, T.ember)}
         ${line}
-        ${node('🚪', escapeHtml(booking.check_out), 'Check-out · before 11:00', T.tide)}
+        ${node('log-out', escapeHtml(booking.check_out), 'Check-out · before 11:00', T.tide)}
       </tr>
     </table>`;
 }
@@ -183,7 +190,7 @@ function voucher({ booking, stayTitle, location, hostName, stayImage }) {
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
           <tr>
             <td valign="middle">
-              ${overline('E-voucher', T.tide)}
+              ${overline('E-voucher', T.tide, 'check-circle')}
               <span style="display:inline-block;margin-left:12px;border:1px solid ${T.line};border-radius:8px;background:${T.elevated};padding:5px 10px;font-family:${FONT_MONO};font-size:15px;font-weight:600;color:${T.ink};">${escapeHtml(booking.reference_code)}</span>
             </td>
             <td align="right" valign="middle">
@@ -202,25 +209,25 @@ function voucher({ booking, stayTitle, location, hostName, stayImage }) {
               <div style="display:inline-block;background:${T.paper2};border:1px solid ${T.line};border-radius:999px;padding:3px 12px;font-family:${FONT_MONO};font-size:9px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:${T.ink2};">Family stewarded</div>
             </div>
             <h2 style="margin:12px 0 6px;font-family:${FONT_DISPLAY};font-size:24px;font-weight:600;letter-spacing:-0.02em;color:${T.ink};">${escapeHtml(stayTitle)}</h2>
-            <p style="margin:0;font-size:12.5px;color:${T.ink2};">📍 ${escapeHtml(location)} · Gokarna, Karnataka</p>
+            <p style="margin:0;font-size:12.5px;color:${T.ink2};">${iconImg('map-pin', 13)} ${escapeHtml(location)} · Gokarna, Karnataka</p>
 
             <div style="background:${T.paper2};border:1px solid ${T.line};border-radius:16px;padding:20px 22px;margin-top:22px;">
-              ${overline('Itinerary', T.tide)}
+              ${overline('Itinerary', T.tide, 'calendar-days')}
               ${itineraryRow(booking)}
             </div>
 
             <div style="margin-top:22px;">
-              ${overline('Reservation progress', T.tide)}
+              ${overline('Reservation progress', T.tide, 'check-circle')}
               ${progressRow(booking.status)}
             </div>
 
             <div style="margin-top:22px;background:${T.paper2};border:1px solid ${T.line};border-radius:14px;padding:14px 16px;font-size:11.5px;color:${T.ink2};line-height:1.55;">
-              🛡️ Your dates are locked. Our concierge coordinates your arrival — no middleman contact needed.
+              ${iconImg('shield-check', 16)} Your dates are locked. Our concierge coordinates your arrival — no middleman contact needed.
             </div>
           </td>
 
           <td valign="top" width="38%" style="padding:26px 28px;border-left:1px dashed ${T.line2};">
-            ${overline('Fare receipt', T.tide)}
+            ${overline('Fare receipt', T.tide, 'credit-card')}
             <div style="margin-top:14px;">${receiptRows(booking)}</div>
           </td>
         </tr>
@@ -237,26 +244,29 @@ function shell({ banner, content, ctaLabel, ctaHref, whatsappHref, guestEmail })
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
 <body style="margin:0;padding:0;background:${T.paper};font-family:${FONT_BODY};color:${T.ink};">
-  <div style="max-width:620px;margin:28px auto;">
-    <div style="text-align:center;padding:18px 24px 14px;">
-      <img src="cid:coastallogo" alt="Coastal Trails" width="190" style="height:auto;display:block;margin:0 auto;">
-    </div>
-    <div style="height:3px;background:${T.glow};margin:0 0 20px;"></div>
-
-    ${banner || ''}
-    ${content}
-
-    ${ctaLabel || whatsappHref ? `
-    <div style="margin:26px 0 8px;text-align:center;">
-      ${ctaLabel ? `<a href="${ctaHref}" style="display:inline-block;background:${T.tide};color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:13px 28px;border-radius:12px;">${ctaLabel}</a>` : ''}
-      ${whatsappHref ? `<a href="${whatsappHref}" style="display:inline-block;margin-left:10px;border:1.5px solid ${T.tide};color:${T.tide};text-decoration:none;font-weight:600;font-size:14px;padding:12px 24px;border-radius:12px;">WhatsApp host</a>` : ''}
-    </div>` : ''}
-
-    <div style="text-align:center;padding:22px 24px 8px;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${T.paper};">
+    <tr><td style="padding:14px 12px 0;" align="center">
+      <img src="cid:coastallogo" alt="Coastal Trails" width="72" height="72" style="display:block;border:0;">
+      <div style="height:3px;background:${T.glow};margin:14px 0 16px;border:0;"></div>
+    </td></tr>
+    <tr><td style="padding:0 12px 16px;" align="center">
+      <div style="width:100%;text-align:left;">
+        ${banner || ''}
+        ${content}
+      </div>
+    </td></tr>
+    <tr><td style="padding:0 12px;" align="center">
+      ${ctaLabel || whatsappHref ? `
+      <div style="margin:18px 0 8px;text-align:center;">
+        ${ctaLabel ? `<a href="${ctaHref}" style="display:inline-block;background:${T.tide};color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:13px 28px;border-radius:12px;">${ctaLabel}</a>` : ''}
+        ${whatsappHref ? `<a href="${whatsappHref}" style="display:inline-block;margin-left:10px;border:1.5px solid ${T.tide};color:${T.tide};text-decoration:none;font-weight:600;font-size:14px;padding:12px 24px;border-radius:12px;">${iconImg('message-circle', 14)} WhatsApp host</a>` : ''}
+      </div>` : ''}
+    </td></tr>
+    <tr><td style="padding:14px 24px 24px;" align="center">
       <p style="margin:0 0 6px;font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:${T.ink3};">Coastal Trails · Gokarna</p>
       ${guestEmail ? `<p style="margin:0;font-family:${FONT_MONO};font-size:10px;color:${T.ink3};">${escapeHtml(guestEmail)}</p>` : ''}
-    </div>
-  </div>
+    </td></tr>
+  </table>
 </body>
 </html>`;
 }
@@ -275,10 +285,15 @@ async function send({ to, subject, html, label }) {
     html,
     attachments: [
       {
-        filename: 'coastal-trails-logo.png',
+        filename: 'brand-logo.png',
         path: LOGO_PATH,
         cid: 'coastallogo',
       },
+      ...ICON_NAMES.map((name) => ({
+        filename: `${name}.png`,
+        path: path.join(ICON_DIR, `${name}.png`),
+        cid: `icon-${name}`,
+      })),
     ],
   });
   console.log(`[mail] ${label} sent → ${to}`);
@@ -289,14 +304,14 @@ export async function sendPaymentSuccessEmail({ to, booking, stayTitle, location
   const whatsapp = hostWhatsapp ? `https://wa.me/${String(hostWhatsapp).replace(/\D/g, '')}` : null;
   const html = shell({
     banner: `
-      <div style="background:${T.paper2};border:1px solid ${T.line};border-radius:16px;padding:18px 24px;margin-bottom:2px;">
+      <div style="background:${T.paper2};border:1px solid ${T.line};border-radius:16px;padding:18px 24px;margin-bottom:16px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
           <td>
-            <div style="font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${T.ok};margin-bottom:6px;">✓ Payment successful</div>
+            <div style="font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${T.ok};margin-bottom:6px;">Payment successful</div>
             <div style="font-family:${FONT_DISPLAY};font-size:21px;font-weight:600;color:${T.ink};">Your stay is booked, ${escapeHtml(guestName.split(' ')[0])}</div>
           </td>
           <td align="right" valign="middle">
-            <div style="background:${T.ok};border-radius:12px;width:46px;height:46px;line-height:46px;text-align:center;font-size:22px;color:#fff;">✓</div>
+            <div style="background:${T.elevated};border:1px solid ${T.ok};border-radius:12px;width:48px;height:48px;line-height:48px;text-align:center;">${iconImg('check-circle', 22)}</div>
           </td>
         </tr></table>
       </div>`,
@@ -313,15 +328,15 @@ export async function sendHoldCreatedEmail({ to, booking, stayTitle, location, h
   const amountDue = Number(booking.total_amount) * 0.2;
   const html = shell({
     banner: `
-      <div style="background:${T.paper2};border:1px solid ${T.warn};border-radius:16px;padding:18px 24px;margin-bottom:2px;">
+      <div style="background:${T.paper2};border:1px solid ${T.warn};border-radius:16px;padding:18px 24px;margin-bottom:16px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
           <td>
-            <div style="font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${T.warn};margin-bottom:6px;">🔒 Hold created</div>
+            <div style="font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${T.warn};margin-bottom:6px;">Hold created</div>
             <div style="font-family:${FONT_DISPLAY};font-size:21px;font-weight:600;color:${T.ink};">Your dates are held, ${escapeHtml(guestName.split(' ')[0])}</div>
             <div style="font-size:12.5px;color:${T.ink2};margin-top:4px;">Pay <strong>₹${fmtMoney(amountDue)}</strong> within 24 hours to lock this stay — the rest is paid at the property.</div>
           </td>
           <td align="right" valign="middle">
-            <div style="background:${T.gold};border-radius:12px;width:46px;height:46px;line-height:46px;text-align:center;font-size:22px;color:#fff;">🔒</div>
+            <div style="background:${T.elevated};border:1px solid ${T.gold};border-radius:12px;width:48px;height:48px;line-height:48px;text-align:center;">${iconImg('lock', 22)}</div>
           </td>
         </tr></table>
       </div>`,
@@ -335,21 +350,21 @@ export async function sendHoldCreatedEmail({ to, booking, stayTitle, location, h
 
 export async function sendBookingStatusEmail({ to, booking, stayTitle, location, hostName, status, guestName, stayImage }) {
   const meta = {
-    confirmed: { icon: '🎉', bg: T.ok, label: 'Booking confirmed', headline: 'See you soon, ' + escapeHtml(guestName.split(' ')[0]) },
-    declined: { icon: '✕', bg: T.err, label: 'Booking declined', headline: 'This stay could not be confirmed' },
-    cancelled: { icon: '✕', bg: T.ink3, label: 'Booking cancelled', headline: 'Booking cancelled' },
+    confirmed: { icon: 'check-circle', bg: T.ok, label: 'Booking confirmed', headline: 'See you soon, ' + escapeHtml(guestName.split(' ')[0]) },
+    declined: { icon: 'x-circle', bg: T.err, label: 'Booking declined', headline: 'This stay could not be confirmed' },
+    cancelled: { icon: 'x-circle', bg: T.ink3, label: 'Booking cancelled', headline: 'Booking cancelled' },
   };
   const m = meta[status] || meta.cancelled;
   const html = shell({
     banner: `
-      <div style="background:${T.paper2};border:1px solid ${T.line};border-radius:16px;padding:18px 24px;margin-bottom:2px;">
+      <div style="background:${T.paper2};border:1px solid ${T.line};border-radius:16px;padding:18px 24px;margin-bottom:16px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
           <td>
-            <div style="font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${m.bg};margin-bottom:6px;">${m.icon} ${m.label}</div>
+            <div style="font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${m.bg};margin-bottom:6px;">${m.label}</div>
             <div style="font-family:${FONT_DISPLAY};font-size:21px;font-weight:600;color:${T.ink};">${m.headline}</div>
           </td>
           <td align="right" valign="middle">
-            <div style="background:${m.bg};border-radius:12px;width:46px;height:46px;line-height:46px;text-align:center;font-size:22px;color:#fff;">${m.icon}</div>
+            <div style="background:${T.elevated};border:1px solid ${m.bg};border-radius:12px;width:48px;height:48px;line-height:48px;text-align:center;">${iconImg(m.icon, 22)}</div>
           </td>
         </tr></table>
       </div>`,
@@ -364,8 +379,8 @@ export async function sendBookingStatusEmail({ to, booking, stayTitle, location,
 export async function sendAdminNewBookingAlert({ to, booking, stayTitle, location, hostName, guestName, stayImage }) {
   const html = shell({
     banner: `
-      <div style="background:${T.paper2};border:1px solid ${T.line};border-radius:16px;padding:18px 24px;margin-bottom:2px;">
-        <div style="font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${T.ink3};margin-bottom:6px;">🔔 New booking request</div>
+      <div style="background:${T.paper2};border:1px solid ${T.line};border-radius:16px;padding:18px 24px;margin-bottom:16px;">
+        <div style="font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${T.ink3};margin-bottom:6px;">New booking request</div>
         <div style="font-family:${FONT_DISPLAY};font-size:21px;font-weight:600;color:${T.ink};">${escapeHtml(guestName)} just held ${escapeHtml(stayTitle)}</div>
         <div style="font-size:12.5px;color:${T.ink2};margin-top:4px;">${escapeHtml(location)} · ${escapeHtml(fmtDate(booking.check_in))} → ${escapeHtml(fmtDate(booking.check_out))} · ${booking.guests_count} guest${booking.guests_count > 1 ? 's' : ''}</div>
       </div>`,
