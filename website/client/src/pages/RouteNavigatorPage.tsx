@@ -6,10 +6,8 @@ import {
   Camera,
   ChevronRight,
   Clock,
-  CloudSun,
   Compass,
   Download,
-  Droplets,
   IndianRupee,
   Info,
   LocateFixed,
@@ -18,10 +16,9 @@ import {
   Navigation,
   Phone,
   Route,
-  Search,
   Share2,
+  ShieldCheck,
   Ship,
-  Sun,
   Sunset,
   TrendingUp,
   User,
@@ -43,6 +40,7 @@ interface TransportOption {
   terrain: string;
   difficulty: 'Easy' | 'Moderate' | 'Challenging';
   segment: Segment[];
+  safety?: string;
 }
 
 interface Waypoint {
@@ -81,6 +79,7 @@ const TRANSPORT_OPTIONS: TransportOption[] = [
     terrain: 'Calm sea lanes · life jackets provided',
     difficulty: 'Easy',
     segment: ['ferry'],
+    safety: 'Lifejacket Verified',
   },
   {
     id: 'scooter',
@@ -160,13 +159,24 @@ const WAYPOINTS: Waypoint[] = [
     elevation: 4,
     crowd: 'High',
     note: 'Ferry jetty on the south end · autos queue at the gate · water refill kiosk.',
-    type: 'end',
-    x: 92,
+    type: 'beach',
+    x: 88,
     y: 64,
+  },
+  {
+    id: 'halfmoon',
+    name: 'Half Moon Beach',
+    km: 3.6,
+    elevation: 8,
+    crowd: 'Low',
+    note: 'Boat-only or foot access · lifeguard till 18:00 · last ferry back 17:30.',
+    type: 'end',
+    x: 96,
+    y: 74,
   },
 ];
 
-const ELEVATION = [6, 12, 22, 34, 42, 48, 44, 31, 22, 12, 6, 4];
+const ELEVATION = [6, 12, 22, 34, 42, 48, 44, 31, 22, 12, 6, 4, 8, 6];
 
 function ElevationProfile() {
   const w = 620;
@@ -203,10 +213,10 @@ function ElevationProfile() {
   );
 }
 
-const SEGMENTS: { id: Segment; label: string }[] = [
-  { id: 'trek', label: 'Trail & Trek' },
-  { id: 'ferry', label: 'Ferry Routes' },
-  { id: 'road', label: 'Auto & Scooter' },
+const SEGMENTS: { id: Segment; label: string; icon: typeof Ship }[] = [
+  { id: 'trek', label: 'Trekking', icon: Mountain },
+  { id: 'ferry', label: 'Boat Ferry', icon: Ship },
+  { id: 'road', label: 'Auto & Scooter', icon: Bike },
 ];
 
 const CROWD_STYLE: Record<Waypoint['crowd'], string> = {
@@ -229,65 +239,27 @@ export const RouteNavigatorPage: React.FC = () => {
 
   return (
     <div className="w-full max-w-full">
-      {/* Compact top bar */}
-      <div className="mb-4 flex h-14 items-center gap-3 rounded-2xl border border-[#E2E8F0] bg-white px-3 shadow-sm sm:px-4">
-        <div className="flex shrink-0 items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0D9488] text-white">
-            <Waves className="h-4 w-4" />
-          </span>
-          <span className="hidden text-sm font-bold tracking-tight text-[#0F172A] md:block">CoastalTrails</span>
-        </div>
-        <div className="hidden items-center gap-1 text-xs font-medium text-slate-500 lg:flex">
-          <span>Gokarna</span>
-          <ChevronRight className="h-3.5 w-3.5 text-slate-300" />
-          <span className="font-semibold text-[#0F172A]">Kudle to Om Beach</span>
-        </div>
-
-        <div className="mx-auto flex items-center gap-0.5 rounded-full border border-[#E2E8F0] bg-slate-50 p-0.5">
-          {SEGMENTS.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setSegment(s.id)}
-              className={cn(
-                'rounded-full px-3 py-1.5 text-[11px] font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D9488]',
-                segment === s.id ? 'bg-[#0F172A] text-white shadow-sm' : 'text-slate-600 hover:text-[#0F172A]',
-              )}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          <div className="hidden items-center gap-2 rounded-xl border border-[#E2E8F0] bg-slate-50 px-2.5 py-1.5 sm:flex">
-            <CloudSun className="h-4 w-4 text-[#F59E0B]" />
-            <span className="text-xs font-bold text-[#0F172A]">28°C</span>
-            <span className="h-3 w-px bg-[#E2E8F0]" />
-            <Droplets className="h-3.5 w-3.5 text-[#0D9488]" />
-            <span className="text-[11px] font-semibold text-slate-600">High tide 14:20</span>
-          </div>
-          <button
-            type="button"
-            aria-label="Search routes"
-            className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#E2E8F0] bg-white text-slate-500 transition-colors hover:text-[#0D9488] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D9488]"
-          >
-            <Search className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            aria-label="Profile"
-            className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#0F172A] text-white transition-transform hover:scale-105"
-          >
-            <User className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-
       {/* Split viewport */}
       <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-[380px_minmax(0,1fr)]">
         {/* Left: route & dispatch controller */}
         <div className="flex flex-col gap-4">
+          {/* Comparison tabs: Trekking / Boat Ferry / Auto & Scooter */}
+          <div className="grid grid-cols-3 gap-1 rounded-2xl border border-[#E2E8F0] bg-white p-1.5 shadow-sm">
+            {SEGMENTS.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setSegment(s.id)}
+                className={cn(
+                  'flex items-center justify-center gap-1.5 rounded-xl px-2 py-2 text-[11px] font-semibold transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D9488]',
+                  segment === s.id ? 'bg-[#0F172A] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50 hover:text-[#0F172A]',
+                )}
+              >
+                <s.icon className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{s.label}</span>
+              </button>
+            ))}
+          </div>
           <div className="rounded-2xl border border-[#E2E8F0] bg-white p-5 shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -297,11 +269,11 @@ export const RouteNavigatorPage: React.FC = () => {
                     Coastal Trail
                   </span>
                   <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600">
-                    Moderate · 2.8 km
+                    Moderate · 3.6 km
                   </span>
                 </div>
                 <h1 className="mt-2.5 font-sans text-xl font-bold tracking-tight text-[#0F172A]">
-                  Kudle Beach → Om Beach
+                  Kudle Beach → Om Beach → Half Moon
                 </h1>
                 <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] font-semibold text-slate-500">
                   <span className="flex items-center gap-1">
@@ -310,7 +282,7 @@ export const RouteNavigatorPage: React.FC = () => {
                   </span>
                   <span className="flex items-center gap-1">
                     <Clock className="h-3.5 w-3.5 text-[#0D9488]" />
-                    Trek 48 min
+                    Trek 62 min
                   </span>
                   <span className="flex items-center gap-1">
                     <Ship className="h-3.5 w-3.5 text-[#0D9488]" />
@@ -372,6 +344,12 @@ export const RouteNavigatorPage: React.FC = () => {
                           </span>
                           <span className="text-[10px] font-semibold text-slate-400">{o.difficulty}</span>
                         </div>
+                        {o.safety && (
+                          <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700">
+                            <ShieldCheck className="h-3 w-3" />
+                            {o.safety}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </button>
