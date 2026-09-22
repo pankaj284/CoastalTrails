@@ -48,7 +48,9 @@ async function notifyBookingPaid(booking) {
   try {
     const user = await get('SELECT email FROM users WHERE id = ? OR phone = ?', [booking.user_id, booking.user_phone]);
     const stay = await get(
-      'SELECT title, location_display, host_name, host_whatsapp FROM homestays WHERE id = ?',
+      `SELECT h.title, h.location_display, h.host_name, h.host_whatsapp,
+              (SELECT image_url FROM homestay_images i WHERE i.homestay_id = h.id ORDER BY i.sort_order ASC LIMIT 1) AS image
+       FROM homestays h WHERE h.id = ?`,
       [booking.homestay_id]
     );
     const to = user?.email || booking.user_email;
@@ -63,6 +65,7 @@ async function notifyBookingPaid(booking) {
       location: stay?.location_display || '',
       hostName: stay?.host_name || '',
       hostWhatsapp: stay?.host_whatsapp || '',
+      stayImage: stay?.image || '',
       guestName: booking.user_name,
     });
   } catch (err) {

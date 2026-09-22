@@ -15,6 +15,11 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 async function notifyBookingCreated(booking, stay, userEmail) {
   try {
+    const imageRow = await get(
+      'SELECT image_url FROM homestay_images WHERE homestay_id = ? ORDER BY sort_order ASC LIMIT 1',
+      [booking.homestay_id]
+    );
+    const stayImage = imageRow?.image_url || '';
     const to = userEmail || booking.user_email;
     if (to) {
       await sendHoldCreatedEmail({
@@ -23,6 +28,7 @@ async function notifyBookingCreated(booking, stay, userEmail) {
         stayTitle: stay?.title || 'Your stay',
         location: stay?.location_display || '',
         hostName: stay?.host_name || '',
+        stayImage,
         guestName: booking.user_name,
       });
     }
@@ -34,6 +40,7 @@ async function notifyBookingCreated(booking, stay, userEmail) {
         stayTitle: stay?.title || 'Stay',
         location: stay?.location_display || '',
         hostName: stay?.host_name || '',
+        stayImage,
         guestName: booking.user_name,
       });
     }
@@ -46,9 +53,12 @@ async function notifyStatusChange(booking, status) {
   if (!['confirmed', 'declined', 'cancelled'].includes(status)) return;
   try {
     const user = await get('SELECT email FROM users WHERE id = ? OR phone = ?', [booking.user_id, booking.user_phone]);
-    const stay = await get('SELECT title, location_display, host_name, host_whatsapp FROM homestays WHERE id = ?', [
-      booking.homestay_id,
-    ]);
+    const stay = await get(
+      `SELECT h.title, h.location_display, h.host_name, h.host_whatsapp,
+              (SELECT image_url FROM homestay_images i WHERE i.homestay_id = h.id ORDER BY i.sort_order ASC LIMIT 1) AS image
+       FROM homestays h WHERE h.id = ?`,
+      [booking.homestay_id]
+    );
     const to = user?.email || booking.user_email;
     if (!to) return;
     await sendBookingStatusEmail({
@@ -57,6 +67,7 @@ async function notifyStatusChange(booking, status) {
       stayTitle: stay?.title || 'Your stay',
       location: stay?.location_display || '',
       hostName: stay?.host_name || '',
+      stayImage: stay?.image || '',
       status,
       guestName: booking.user_name,
     });

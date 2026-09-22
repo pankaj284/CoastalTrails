@@ -77,60 +77,184 @@ function nights(booking) {
   return Math.max(1, Math.round((b - a) / 86400000));
 }
 
-function row(label, value, { mono = true, tone = '' } = {}) {
+function overline(label, tone = T.tide) {
+  return `<span style="font-family:${FONT_MONO};font-size:11px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${tone};">${label}</span>`;
+}
+
+function statusStamp(status, paymentStatus) {
+  const isConfirmed = status === 'confirmed' || status === 'checked_in' || status === 'completed';
+  const isDeclined = status === 'declined';
+  const cancelled = status === 'cancelled';
+  const expired = status === 'expired';
+  const label = cancelled ? 'Cancelled' : expired ? 'Expired' : isConfirmed ? 'Confirmed ✓' : isDeclined ? 'Declined' : 'Awaiting host';
+  const color = isConfirmed ? T.ok : isDeclined ? T.err : cancelled || expired ? T.ink3 : T.warn;
+  const paidTag = paymentStatus === 'paid' && !isConfirmed ? ' · Paid ✓' : '';
+  return `<span style="display:inline-block;border:2px solid ${color};color:${color};border-radius:8px;padding:5px 12px;font-family:${FONT_MONO};font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">${label}${paidTag}</span>`;
+}
+
+function itineraryRow(booking) {
+  const n = nights(booking);
+  const node = (emoji, date, caption, borderColor) => `
+    <td align="center" valign="top" style="padding:0 4px;">
+      <div style="width:30px;height:30px;border-radius:50%;border:2px solid ${borderColor};background:${T.elevated};display:inline-block;line-height:26px;font-size:13px;">${emoji}</div>
+      <div style="font-family:${FONT_MONO};font-size:12px;font-weight:600;color:${T.ink};margin-top:8px;">${date}</div>
+      <div style="font-size:10px;color:${T.ink3};margin-top:2px;">${caption}</div>
+    </td>`;
+  const line = `<td style="border-top:1px solid ${T.line};height:1px;padding:0;width:26px;" valign="middle"></td>`;
   return `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px;">
+      <tr>
+        ${node('📅', escapeHtml(booking.check_in), 'Check-in · after 12:00', T.tide)}
+        ${line}
+        ${node('🌙', `${n} night${n > 1 ? 's' : ''}`, `${booking.guests_count} guest${booking.guests_count > 1 ? 's' : ''} · 1 room`, T.ember)}
+        ${line}
+        ${node('🚪', escapeHtml(booking.check_out), 'Check-out · before 11:00', T.tide)}
+      </tr>
+    </table>`;
+}
+
+function progressRow(status) {
+  const steps = [
+    { label: 'Hold secured', done: true, fail: false },
+    { label: 'Host review', done: status === 'confirmed' || status === 'checked_in' || status === 'completed' || status === 'declined', fail: status === 'declined' },
+    { label: status === 'declined' ? 'Declined' : 'Confirmed', done: status === 'confirmed' || status === 'checked_in' || status === 'completed', fail: status === 'declined' },
+  ];
+  const cells = steps.map((s, i) => {
+    const circleStyle = s.fail
+      ? `border:2px solid ${T.err};background:${T.err};color:#fff;`
+      : s.done
+        ? `border:2px solid ${T.tide};background:${T.tide};color:#fff;`
+        : i === 1
+          ? `border:2px solid ${T.tide};background:${T.paper2};color:${T.tide};`
+          : `border:2px solid ${T.line2};background:${T.paper2};color:${T.ink3};`;
+    const inner = s.fail ? '✕' : s.done && i !== 1 ? '✓' : i + 1;
+    const circle = `<div style="width:28px;height:28px;border-radius:50%;${circleStyle}display:inline-block;line-height:24px;font-size:12px;font-weight:600;font-family:${FONT_BODY};">${inner}</div>`;
+    const label = `<div style="font-family:${FONT_MONO};font-size:9px;letter-spacing:0.06em;text-transform:uppercase;color:${T.ink3};margin-top:6px;white-space:nowrap;">${s.label}</div>`;
+    return `<td align="center" valign="top" style="padding:0 2px;">${circle}${label}</td>`;
+  });
+  const bar = (done) => `<td style="width:100%;"><div style="height:2px;border-radius:2px;background:${done ? T.tide : T.line};"></div></td>`;
+  return `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;">
+      <tr>
+        ${cells[0]}
+        ${bar(true)}
+        ${cells[1]}
+        ${bar(steps[1].done)}
+        ${cells[2]}
+      </tr>
+    </table>`;
+}
+
+function receiptRows(booking) {
+  const row = (label, value, opts = {}) => `
+      <tr>
+        <td style="padding:7px 0;${opts.dash ? `border-bottom:1px dashed ${T.line2};` : ''}font-size:12.5px;color:${opts.muted ? T.ink3 : T.ink2};">${label}</td>
+        <td align="right" style="padding:7px 0;${opts.dash ? `border-bottom:1px dashed ${T.line2};` : ''}font-family:${FONT_MONO};font-weight:600;font-size:12.5px;color:${opts.tone || T.ink};">${value}</td>
+      </tr>`;
+  return `
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        ${row('Total stay tariff', `₹${fmtMoney(booking.total_amount)}`, { dash: true })}
+        ${row('20% hold paid online', `₹${fmtMoney(booking.advance_paid)}`, { tone: T.tide, dash: true })}
+        ${row('80% balance at property', `₹${fmtMoney(booking.balance_payable_at_property)}`, { dash: true })}
+        ${row('Convenience fee', '₹0', { muted: true, tone: T.ok })}
+      </table>`;
+}
+
+function barcode(referenceCode) {
+  const bars = [16, 29, 23, 29, 19, 26, 29, 16, 26, 20, 29, 23, 16, 29, 19, 26, 29, 16, 26, 20, 29, 23, 16, 29, 19, 26, 29, 16, 26, 20, 29, 23, 16, 29, 19, 26, 29, 16, 26, 20, 29, 23];
+  const barTds = bars
+    .map(
+      (h) =>
+        `<td width="2" style="padding:0;"><div style="width:2px;height:${h}px;background:${T.ink};display:inline-block;"></div></td>`
+    )
+    .join('');
+  return `
+    <div style="margin-top:26px;padding-top:22px;border-top:1px dashed ${T.line2};text-align:center;">
+      <table role="presentation" align="center" cellpadding="0" cellspacing="0" style="height:29px;"><tr>${barTds}</tr></table>
+      <div style="font-family:${FONT_MONO};font-size:14px;font-weight:600;letter-spacing:0.25em;color:${T.ink};margin-top:6px;">${escapeHtml(referenceCode)}</div>
+      <div style="font-family:${FONT_MONO};font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:${T.ok};margin-top:6px;">Valid for check-in</div>
+    </div>`;
+}
+
+function voucher({ booking, stayTitle, location, hostName, stayImage }) {
+  return `
+    <div style="background:${T.elevated};border:1px solid ${T.line};border-radius:24px;overflow:hidden;margin:22px 0;">
+      <div style="background:${T.paper2};border-bottom:1px solid ${T.line};padding:16px 24px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
           <tr>
-            <td style="padding:7px 0;color:${T.ink2};font-size:13px;">${label}</td>
-            <td style="text-align:right;padding:7px 0;${mono ? `font-family:${FONT_MONO};` : ''}font-weight:600;color:${tone || T.ink};font-size:13px;">${value}</td>
-          </tr>`;
-}
-
-function overline(icon, label, tone = T.tide) {
-  return `
-        <div style="font-family:${FONT_MONO};font-size:11px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${tone};margin-bottom:14px;">
-          ${icon ? `<span style="font-size:13px;margin-right:6px;">${icon}</span>` : ''}${label}
-        </div>`;
-}
-
-function well({ icon, label, tone = T.tide, rows }) {
-  return `
-      <div style="background:${T.paper2};border:1px solid ${T.line};border-radius:16px;padding:22px 24px;margin-bottom:16px;">
-        ${overline(icon, label, tone)}
-        <table style="width:100%;border-collapse:collapse;">
-${rows}
+            <td valign="middle">
+              ${overline('E-voucher', T.tide)}
+              <span style="display:inline-block;margin-left:12px;border:1px solid ${T.line};border-radius:8px;background:${T.elevated};padding:5px 10px;font-family:${FONT_MONO};font-size:15px;font-weight:600;color:${T.ink};">${escapeHtml(booking.reference_code)}</span>
+            </td>
+            <td align="right" valign="middle">
+              <span style="font-size:12px;color:${T.ink3};margin-right:14px;">Booked on ${escapeHtml(fmtDate(booking.created_at))}</span>
+              ${statusStamp(booking.status, booking.payment_status)}
+            </td>
+          </tr>
         </table>
-      </div>`;
+      </div>
+
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td valign="top" width="62%" style="padding:26px 28px;">
+            ${stayImage ? `<img src="${escapeHtml(stayImage)}" alt="" width="100%" style="border-radius:16px;border:1px solid ${T.line};display:block;">` : ''}
+            <div style="margin-top:18px;">
+              <div style="display:inline-block;background:${T.paper2};border:1px solid ${T.line};border-radius:999px;padding:3px 12px;font-family:${FONT_MONO};font-size:9px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:${T.ink2};">Family stewarded</div>
+            </div>
+            <h2 style="margin:12px 0 6px;font-family:${FONT_DISPLAY};font-size:24px;font-weight:600;letter-spacing:-0.02em;color:${T.ink};">${escapeHtml(stayTitle)}</h2>
+            <p style="margin:0;font-size:12.5px;color:${T.ink2};">📍 ${escapeHtml(location)} · Gokarna, Karnataka</p>
+
+            <div style="background:${T.paper2};border:1px solid ${T.line};border-radius:16px;padding:20px 22px;margin-top:22px;">
+              ${overline('Itinerary', T.tide)}
+              ${itineraryRow(booking)}
+            </div>
+
+            <div style="margin-top:22px;">
+              ${overline('Reservation progress', T.tide)}
+              ${progressRow(booking.status)}
+            </div>
+
+            <div style="margin-top:22px;background:${T.paper2};border:1px solid ${T.line};border-radius:14px;padding:14px 16px;font-size:11.5px;color:${T.ink2};line-height:1.55;">
+              🛡️ Your dates are locked. Our concierge coordinates your arrival — no middleman contact needed.
+            </div>
+          </td>
+
+          <td valign="top" width="38%" style="padding:26px 28px;border-left:1px dashed ${T.line2};">
+            ${overline('Fare receipt', T.tide)}
+            <div style="margin-top:14px;">${receiptRows(booking)}</div>
+          </td>
+        </tr>
+      </table>
+
+      <div style="padding:0 28px 28px;">
+        ${barcode(booking.reference_code)}
+      </div>
+    </div>`;
 }
 
-function shell({ icon, iconBg, headline, sub, content, ctaLabel, ctaHref, whatsappHref, guestEmail }) {
+function shell({ banner, content, ctaLabel, ctaHref, whatsappHref, guestEmail }) {
   return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
 <body style="margin:0;padding:0;background:${T.paper};font-family:${FONT_BODY};color:${T.ink};">
-  <div style="max-width:580px;margin:32px auto;background:${T.elevated};border-radius:20px;overflow:hidden;border:1px solid ${T.line};">
-    <div style="padding:32px 36px 28px;text-align:center;">
-      <img src="cid:coastallogo" alt="Coastal Trails" width="190" style="height:auto;display:block;margin:0 auto 14px;">
-      <div style="font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.22em;text-transform:uppercase;color:${T.ink3};">Gokarna · Coastal Homestays</div>
+  <div style="max-width:620px;margin:28px auto;">
+    <div style="text-align:center;padding:18px 24px 14px;">
+      <img src="cid:coastallogo" alt="Coastal Trails" width="190" style="height:auto;display:block;margin:0 auto;">
     </div>
-    <div style="height:3px;background:${T.glow};"></div>
-    <div style="padding:32px 36px 36px;">
-      <div style="width:48px;height:48px;border-radius:14px;background:${iconBg};display:flex;align-items:center;justify-content:center;margin-bottom:18px;">
-        <span style="color:#ffffff;font-size:22px;font-weight:600;line-height:1;">${icon}</span>
-      </div>
-      <h1 style="margin:0 0 10px;font-family:${FONT_DISPLAY};font-size:25px;font-weight:600;letter-spacing:-0.02em;line-height:1.15;color:${T.ink};">${headline}</h1>
-      <p style="margin:0 0 26px;font-size:14px;line-height:1.65;color:${T.ink2};">${sub}</p>
-      ${content}
-      ${ctaLabel || whatsappHref ? `
-      <div style="margin-top:28px;">
-        ${ctaLabel ? `<a href="${ctaHref}" style="display:inline-block;background:${T.tide};color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:13px 28px;border-radius:12px;">${ctaLabel}</a>` : ''}
-        ${whatsappHref ? `<a href="${whatsappHref}" style="display:inline-block;margin-left:10px;border:1.5px solid ${T.tide};color:${T.tide};text-decoration:none;font-weight:600;font-size:14px;padding:12px 24px;border-radius:12px;">WhatsApp host</a>` : ''}
-      </div>` : ''}
-      <div style="margin-top:32px;padding-top:20px;border-top:1px solid ${T.line};text-align:center;">
-        <p style="margin:0 0 6px;font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:${T.ink3};">
-          Coastal Trails · Gokarna
-        </p>
-        ${guestEmail ? `<p style="margin:0;font-family:${FONT_MONO};font-size:10px;color:${T.ink3};">${escapeHtml(guestEmail)}</p>` : ''}
-      </div>
+    <div style="height:3px;background:${T.glow};margin:0 0 20px;"></div>
+
+    ${banner || ''}
+    ${content}
+
+    ${ctaLabel || whatsappHref ? `
+    <div style="margin:26px 0 8px;text-align:center;">
+      ${ctaLabel ? `<a href="${ctaHref}" style="display:inline-block;background:${T.tide};color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:13px 28px;border-radius:12px;">${ctaLabel}</a>` : ''}
+      ${whatsappHref ? `<a href="${whatsappHref}" style="display:inline-block;margin-left:10px;border:1.5px solid ${T.tide};color:${T.tide};text-decoration:none;font-weight:600;font-size:14px;padding:12px 24px;border-radius:12px;">WhatsApp host</a>` : ''}
+    </div>` : ''}
+
+    <div style="text-align:center;padding:22px 24px 8px;">
+      <p style="margin:0 0 6px;font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:${T.ink3};">Coastal Trails · Gokarna</p>
+      ${guestEmail ? `<p style="margin:0;font-family:${FONT_MONO};font-size:10px;color:${T.ink3};">${escapeHtml(guestEmail)}</p>` : ''}
     </div>
   </div>
 </body>
@@ -161,39 +285,22 @@ async function send({ to, subject, html, label }) {
   return { sent: true };
 }
 
-export async function sendPaymentSuccessEmail({ to, booking, stayTitle, location, hostName, hostWhatsapp, guestName }) {
+export async function sendPaymentSuccessEmail({ to, booking, stayTitle, location, hostName, hostWhatsapp, guestName, stayImage }) {
   const whatsapp = hostWhatsapp ? `https://wa.me/${String(hostWhatsapp).replace(/\D/g, '')}` : null;
   const html = shell({
-    icon: '✓',
-    iconBg: T.ok,
-    headline: 'Payment successful — your stay is booked',
-    sub: `Namaskara ${escapeHtml(guestName)},<br>Your 20% hold is confirmed. The host has been notified and will confirm shortly.`,
-    content: `
-      ${well({
-        icon: '🏠',
-        label: 'Stay & dates',
-        rows:
-          row('Homestay', escapeHtml(stayTitle)) +
-          row('Location', escapeHtml(location), { mono: false }) +
-          row('Host', escapeHtml(hostName), { mono: false }) +
-          row('Reference', escapeHtml(booking.reference_code)) +
-          row('Check-in', escapeHtml(fmtDate(booking.check_in))) +
-          row('Check-out', escapeHtml(fmtDate(booking.check_out))) +
-          row('Guests', `${booking.guests_count} · ${nights(booking)} night${nights(booking) === 1 ? '' : 's'}`),
-      })}
-      ${well({
-        icon: '💳',
-        label: 'Payment',
-        tone: T.tide,
-        rows:
-          row('Total stay tariff', `₹${fmtMoney(booking.total_amount)}`) +
-          row('Advance paid (20%)', `₹${fmtMoney(booking.advance_paid)} ✓`, { tone: T.ok }) +
-          row('Balance at property', `₹${fmtMoney(booking.balance_payable_at_property)}`, { tone: T.gold }) +
-          row('Convenience fee', '₹0', { tone: T.ok }),
-      })}
-      <div style="background:${T.paper2};border:1px solid ${T.line};border-radius:16px;padding:18px 22px;font-size:13px;line-height:1.6;color:${T.ink2};">
-        🧭 Pay the remaining balance directly at the property on arrival — no middleman contact needed.
+    banner: `
+      <div style="background:${T.paper2};border:1px solid ${T.line};border-radius:16px;padding:18px 24px;margin-bottom:2px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td>
+            <div style="font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${T.ok};margin-bottom:6px;">✓ Payment successful</div>
+            <div style="font-family:${FONT_DISPLAY};font-size:21px;font-weight:600;color:${T.ink};">Your stay is booked, ${escapeHtml(guestName.split(' ')[0])}</div>
+          </td>
+          <td align="right" valign="middle">
+            <div style="background:${T.ok};border-radius:12px;width:46px;height:46px;line-height:46px;text-align:center;font-size:22px;color:#fff;">✓</div>
+          </td>
+        </tr></table>
       </div>`,
+    content: voucher({ booking, stayTitle, location, hostName, stayImage }),
     ctaLabel: 'View my booking',
     ctaHref: `${SITE_URL}/bookings`,
     whatsappHref: whatsapp,
@@ -202,29 +309,23 @@ export async function sendPaymentSuccessEmail({ to, booking, stayTitle, location
   return send({ to, subject: `Payment received · ${booking.reference_code} — ${stayTitle}`, html, label: `payment email for ${booking.reference_code}` });
 }
 
-export async function sendHoldCreatedEmail({ to, booking, stayTitle, location, hostName, guestName }) {
+export async function sendHoldCreatedEmail({ to, booking, stayTitle, location, hostName, guestName, stayImage }) {
   const amountDue = Number(booking.total_amount) * 0.2;
   const html = shell({
-    icon: '🔒',
-    iconBg: T.gold,
-    headline: 'Your dates are held — complete your 20% hold',
-    sub: `Namaskara ${escapeHtml(guestName)},<br>Your rooms are reserved for 24 hours. Pay <strong>₹${fmtMoney(amountDue)}</strong> to lock this stay — the rest is paid at the property.`,
-    content: `
-      ${well({
-        icon: '🏠',
-        label: 'Stay & dates',
-        rows:
-          row('Homestay', escapeHtml(stayTitle)) +
-          row('Location', escapeHtml(location), { mono: false }) +
-          row('Host', escapeHtml(hostName), { mono: false }) +
-          row('Reference', escapeHtml(booking.reference_code)) +
-          row('Check-in', escapeHtml(fmtDate(booking.check_in))) +
-          row('Check-out', escapeHtml(fmtDate(booking.check_out))) +
-          row('Guests', `${booking.guests_count} · ${nights(booking)} night${nights(booking) === 1 ? '' : 's'}`),
-      })}
-      <div style="background:${T.paper2};border:1px solid ${T.line};border-radius:16px;padding:18px 22px;font-size:13px;line-height:1.6;color:${T.warn};">
-        ⏳ Hold expires: <strong>${escapeHtml(fmtDate(String(booking.hold_expires_at).slice(0, 10)))}</strong> — if it lapses, the rooms are released automatically.
+    banner: `
+      <div style="background:${T.paper2};border:1px solid ${T.warn};border-radius:16px;padding:18px 24px;margin-bottom:2px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td>
+            <div style="font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${T.warn};margin-bottom:6px;">🔒 Hold created</div>
+            <div style="font-family:${FONT_DISPLAY};font-size:21px;font-weight:600;color:${T.ink};">Your dates are held, ${escapeHtml(guestName.split(' ')[0])}</div>
+            <div style="font-size:12.5px;color:${T.ink2};margin-top:4px;">Pay <strong>₹${fmtMoney(amountDue)}</strong> within 24 hours to lock this stay — the rest is paid at the property.</div>
+          </td>
+          <td align="right" valign="middle">
+            <div style="background:${T.gold};border-radius:12px;width:46px;height:46px;line-height:46px;text-align:center;font-size:22px;color:#fff;">🔒</div>
+          </td>
+        </tr></table>
       </div>`,
+    content: voucher({ booking, stayTitle, location, hostName, stayImage }),
     ctaLabel: `Pay ₹${fmtMoney(amountDue)} now`,
     ctaHref: `${SITE_URL}/bookings`,
     guestEmail: to,
@@ -232,66 +333,43 @@ export async function sendHoldCreatedEmail({ to, booking, stayTitle, location, h
   return send({ to, subject: `Hold created · ${booking.reference_code} — complete your payment`, html, label: `hold email for ${booking.reference_code}` });
 }
 
-export async function sendBookingStatusEmail({ to, booking, stayTitle, location, hostName, status, guestName }) {
+export async function sendBookingStatusEmail({ to, booking, stayTitle, location, hostName, status, guestName, stayImage }) {
   const meta = {
-    confirmed: { icon: '🎉', iconBg: T.ok, headline: 'Booking confirmed — see you soon!', sub: `Namaskara ${escapeHtml(guestName)},<br>Your host has confirmed your stay. Pack light — the coast awaits.`, cta: 'View my booking', ctaHref: `${SITE_URL}/bookings` },
-    declined: { icon: '✕', iconBg: T.err, headline: 'Booking declined', sub: `Namaskara ${escapeHtml(guestName)},<br>Unfortunately the host could not accept this booking. Any paid hold is refunded to your original payment method.`, cta: 'Explore other stays', ctaHref: SITE_URL },
-    cancelled: { icon: '✕', iconBg: T.ink3, headline: 'Booking cancelled', sub: `Namaskara ${escapeHtml(guestName)},<br>Your booking has been cancelled. Any paid hold is refunded to your original payment method.`, cta: 'Explore other stays', ctaHref: SITE_URL },
+    confirmed: { icon: '🎉', bg: T.ok, label: 'Booking confirmed', headline: 'See you soon, ' + escapeHtml(guestName.split(' ')[0]) },
+    declined: { icon: '✕', bg: T.err, label: 'Booking declined', headline: 'This stay could not be confirmed' },
+    cancelled: { icon: '✕', bg: T.ink3, label: 'Booking cancelled', headline: 'Booking cancelled' },
   };
   const m = meta[status] || meta.cancelled;
   const html = shell({
-    icon: m.icon,
-    iconBg: m.iconBg,
-    headline: m.headline,
-    sub: m.sub,
-    content: `
-      ${well({
-        icon: '🏠',
-        label: 'Stay & dates',
-        rows:
-          row('Homestay', escapeHtml(stayTitle)) +
-          row('Location', escapeHtml(location), { mono: false }) +
-          row('Host', escapeHtml(hostName), { mono: false }) +
-          row('Reference', escapeHtml(booking.reference_code)) +
-          row('Check-in', escapeHtml(fmtDate(booking.check_in))) +
-          row('Check-out', escapeHtml(fmtDate(booking.check_out))),
-      })}
-      ${well({
-        icon: '💳',
-        label: 'Payment',
-        tone: T.tide,
-        rows:
-          row('Total stay tariff', `₹${fmtMoney(booking.total_amount)}`) +
-          row('Advance paid (20%)', `₹${fmtMoney(booking.advance_paid)}`, { tone: booking.payment_status === 'paid' ? T.ok : T.ink }) +
-          row('Balance at property', `₹${fmtMoney(booking.balance_payable_at_property)}`, { tone: T.gold }),
-      })}`,
-    ctaLabel: m.cta,
-    ctaHref: m.ctaHref,
+    banner: `
+      <div style="background:${T.paper2};border:1px solid ${T.line};border-radius:16px;padding:18px 24px;margin-bottom:2px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td>
+            <div style="font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${m.bg};margin-bottom:6px;">${m.icon} ${m.label}</div>
+            <div style="font-family:${FONT_DISPLAY};font-size:21px;font-weight:600;color:${T.ink};">${m.headline}</div>
+          </td>
+          <td align="right" valign="middle">
+            <div style="background:${m.bg};border-radius:12px;width:46px;height:46px;line-height:46px;text-align:center;font-size:22px;color:#fff;">${m.icon}</div>
+          </td>
+        </tr></table>
+      </div>`,
+    content: voucher({ booking, stayTitle, location, hostName, stayImage }),
+    ctaLabel: status === 'confirmed' ? 'View my booking' : 'Explore other stays',
+    ctaHref: status === 'confirmed' ? `${SITE_URL}/bookings` : SITE_URL,
     guestEmail: to,
   });
-  return send({ to, subject: `${m.headline} · ${booking.reference_code}`, html, label: `status email (${status}) for ${booking.reference_code}` });
+  return send({ to, subject: `${m.label} · ${booking.reference_code}`, html, label: `status email (${status}) for ${booking.reference_code}` });
 }
 
-export async function sendAdminNewBookingAlert({ to, booking, stayTitle, location, hostName, guestName }) {
+export async function sendAdminNewBookingAlert({ to, booking, stayTitle, location, hostName, guestName, stayImage }) {
   const html = shell({
-    icon: '🔔',
-    iconBg: T.ink,
-    headline: 'New booking request',
-    sub: `${escapeHtml(guestName)} just held <strong>${escapeHtml(stayTitle)}</strong> (${escapeHtml(location)}).`,
-    content: `
-      ${well({
-        icon: '🏠',
-        label: 'Booking',
-        rows:
-          row('Reference', escapeHtml(booking.reference_code)) +
-          row('Guest', escapeHtml(guestName), { mono: false }) +
-          row('Phone', escapeHtml(booking.user_phone)) +
-          row('Check-in', escapeHtml(fmtDate(booking.check_in))) +
-          row('Check-out', escapeHtml(fmtDate(booking.check_out))) +
-          row('Guests', String(booking.guests_count)) +
-          row('Total tariff', `₹${fmtMoney(booking.total_amount)}`, { tone: T.ember }) +
-          row('Hold status', booking.payment_status === 'paid' ? 'Paid ✓' : 'Payment pending', { tone: booking.payment_status === 'paid' ? T.ok : T.warn }),
-      })}`,
+    banner: `
+      <div style="background:${T.paper2};border:1px solid ${T.line};border-radius:16px;padding:18px 24px;margin-bottom:2px;">
+        <div style="font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${T.ink3};margin-bottom:6px;">🔔 New booking request</div>
+        <div style="font-family:${FONT_DISPLAY};font-size:21px;font-weight:600;color:${T.ink};">${escapeHtml(guestName)} just held ${escapeHtml(stayTitle)}</div>
+        <div style="font-size:12.5px;color:${T.ink2};margin-top:4px;">${escapeHtml(location)} · ${escapeHtml(fmtDate(booking.check_in))} → ${escapeHtml(fmtDate(booking.check_out))} · ${booking.guests_count} guest${booking.guests_count > 1 ? 's' : ''}</div>
+      </div>`,
+    content: voucher({ booking, stayTitle, location, hostName, stayImage }),
     ctaLabel: 'Review bookings',
     ctaHref: `${SITE_URL}/bookings`,
   });
