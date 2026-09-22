@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import Razorpay from 'razorpay';
 import { all, get, run } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
-import { sendPaymentSuccessEmail } from '../services/mail.js';
+import { sendPaymentFailedEmail, sendPaymentSuccessEmail } from '../services/mail.js';
 
 const router = express.Router();
 
@@ -249,6 +249,31 @@ router.post('/:bookingId/fail', requireAuth, async (req, res) => {
     if (payment) await markPaymentFailed(booking, payment);
 
     const updated = await get('SELECT * FROM bookings WHERE id = ?', [booking.id]);
+    void (async () => {
+      try {
+        const user = await get('SELECT email FROM users WHERE id = ? OR phone = ?', [booking.user_id, booking.user_phone]);
+        const stay = await get(
+          `SELECT h.title, h.location_display, h.host_name,
+                  (SELECT image_url FROM homestay_images i WHERE i.homestay_id = h.id ORDER BY i.sort_order ASC LIMIT 1) AS image
+           FROM homestays h WHERE h.id = ?`,
+          [booking.homestay_id]
+        );
+        const to = user?.email || booking.user_email;
+        if (to) {
+          await sendPaymentFailedEmail({
+            to,
+            booking: updated,
+            stayTitle: stay?.title || 'Your stay',
+            location: stay?.location_display || '',
+            hostName: stay?.host_name || '',
+            stayImage: stay?.image || '',
+            guestName: updated.user_name,
+          });
+        }
+      } catch (err) {
+        console.error('[mail] failed-payment notify error:', err.message);
+      }
+    })();
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: 'Could not update the payment right now.' });

@@ -9,31 +9,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOGO_PATH = path.resolve(__dirname, '../assets/brand-logo.png');
 const ICON_DIR = path.resolve(__dirname, '../assets/icons');
 
-const ICON_NAMES = ['check-circle', 'calendar-days', 'moon', 'log-out', 'shield-check', 'credit-card', 'message-circle', 'bell', 'lock', 'x-circle', 'map-pin'];
-
-// Deep Water Cartography — light "Chart Paper" theme (from website/client/DESIGN.md)
-const T = {
-  paper: '#FFFFFF',
-  paper2: '#F6F3EA',
-  elevated: '#FFFFFF',
-  ink: '#16222E',
-  ink2: '#4C5A68',
-  ink3: '#7E8B97',
-  line: '#E2DDD1',
-  line2: '#C9C2B4',
-  tide: '#00756F',
-  tide2: '#00635E',
-  glow: '#62C5BC',
-  ember: '#C4452F',
-  gold: '#B8860B',
-  ok: '#1B7A4B',
-  err: '#C33B2E',
-  warn: '#A06A00',
-};
-
-const FONT_BODY = "'Instrument Sans', 'Segoe UI', Arial, sans-serif";
-const FONT_DISPLAY = "'Fraunces', Georgia, 'Times New Roman', serif";
-const FONT_MONO = "'JetBrains Mono', Consolas, 'Courier New', monospace";
+const ICON_NAMES = [
+  'star', 'leaf', 'map-pin', 'sun', 'calendar', 'clock', 'moon', 'users',
+  'smartphone', 'receipt', 'id-card', 'check-circle-2', 'check-circle',
+  'calendar-days', 'log-out', 'shield-check', 'credit-card', 'message-circle',
+  'bell', 'lock', 'x-circle',
+];
 
 let transporter = null;
 
@@ -65,14 +46,13 @@ function fmtMoney(n) {
   return new Intl.NumberFormat('en-IN').format(Number(n) || 0);
 }
 
-function fmtDate(iso) {
+function fmtDate(iso, opts) {
   if (!iso) return '—';
-  return new Date(`${iso}T00:00:00`).toLocaleDateString('en-IN', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+  const d = new Date(`${iso}T00:00:00`);
+  if (opts?.long) {
+    return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  }
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function nights(booking) {
@@ -81,201 +61,330 @@ function nights(booking) {
   return Math.max(1, Math.round((b - a) / 86400000));
 }
 
-function overline(label, tone = T.tide, iconName) {
-  return `<span style="font-family:${FONT_MONO};font-size:11px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${tone};">${iconName ? `<img src="cid:icon-${iconName}" width="13" height="13" style="vertical-align:-2px;margin-right:6px;border:0;">` : ''}${label}</span>`;
+const icon = (name, size, extra = '') =>
+  `<img src="cid:icon-${name}" width="${size}" height="${size}" alt="" style="display:inline-block;vertical-align:middle;border:0;${extra}">`;
+
+function pill(label, color, bg, border) {
+  return `<span style="display:inline-block;background-color:${bg};border:1px solid ${border};color:${color};padding:5px 12px;border-radius:999px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;">&bull; ${label}</span>`;
 }
 
-function iconImg(name, size = 14) {
-  return `<img src="cid:icon-${name}" width="${size}" height="${size}" style="vertical-align:-2px;border:0;display:inline-block;">`;
-}
+const PILLS = {
+  awaiting: () => pill('Awaiting Host Confirmation', '#b45309', '#fef8ec', '#f6d8a3'),
+  confirmed: () => pill('Confirmed &#10003;', '#059669', '#ecfdf5', '#a7f3d0'),
+  declined: () => pill('Declined', '#c33b2e', '#fdf2f2', '#f5c6c0'),
+  cancelled: () => pill('Cancelled', '#697471', '#f5f6f6', '#d8dcd9'),
+  pending: () => pill('Payment Pending', '#b45309', '#fef8ec', '#f6d8a3'),
+  failed: () => pill('Payment Failed', '#c33b2e', '#fdf2f2', '#f5c6c0'),
+  newrequest: () => pill('New Booking Request', '#0f3d35', '#e4f2ee', '#bfe0d7'),
+};
 
-function statusStamp(status, paymentStatus) {
-  const isConfirmed = status === 'confirmed' || status === 'checked_in' || status === 'completed';
-  const isDeclined = status === 'declined';
-  const cancelled = status === 'cancelled';
-  const expired = status === 'expired';
-  const label = cancelled ? 'Cancelled' : expired ? 'Expired' : isConfirmed ? 'Confirmed ✓' : isDeclined ? 'Declined' : 'Awaiting host';
-  const color = isConfirmed ? T.ok : isDeclined ? T.err : cancelled || expired ? T.ink3 : T.warn;
-  const paidTag = paymentStatus === 'paid' && !isConfirmed ? ' · Paid ✓' : '';
-  return `<span style="display:inline-block;border:2px solid ${color};color:${color};border-radius:8px;padding:5px 12px;font-family:${FONT_MONO};font-size:11px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">${label}${paidTag}</span>`;
-}
-
-function itineraryRow(booking) {
-  const n = nights(booking);
-  const node = (iconName, date, caption, borderColor) => `
-    <td align="center" valign="top" style="padding:0 4px;">
-      <div style="width:32px;height:32px;border-radius:50%;border:2px solid ${borderColor};background:${T.elevated};display:inline-block;line-height:28px;text-align:center;">${iconImg(iconName, 15)}</div>
-      <div style="font-family:${FONT_MONO};font-size:12px;font-weight:600;color:${T.ink};margin-top:8px;">${date}</div>
-      <div style="font-size:10px;color:${T.ink3};margin-top:2px;">${caption}</div>
-    </td>`;
-  const line = `<td style="border-top:1px solid ${T.line};height:1px;padding:0;width:26px;" valign="middle"></td>`;
+function receiptRows(booking, paymentState) {
+  const holdLabel =
+    paymentState === 'paid'
+      ? '20% hold paid online'
+      : paymentState === 'failed'
+        ? '20% hold &mdash; payment failed'
+        : paymentState === 'refunded'
+          ? '20% hold &mdash; refunded'
+          : '20% hold due online';
+  const holdColor = paymentState === 'paid' ? '#059669' : paymentState === 'failed' ? '#c33b2e' : '#b45309';
+  const holdIcon = paymentState === 'paid' ? 'check-circle-2' : 'clock';
+  const payableLabel = paymentState === 'paid' ? '80% balance due at stay' : '80% balance at property';
   return `
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:14px;">
-      <tr>
-        ${node('calendar-days', escapeHtml(booking.check_in), 'Check-in · after 12:00', T.tide)}
-        ${line}
-        ${node('moon', `${n} night${n > 1 ? 's' : ''}`, `${booking.guests_count} guest${booking.guests_count > 1 ? 's' : ''} · 1 room`, T.ember)}
-        ${line}
-        ${node('log-out', escapeHtml(booking.check_out), 'Check-out · before 11:00', T.tide)}
-      </tr>
-    </table>`;
-}
-
-function progressRow(status) {
-  const steps = [
-    { label: 'Hold secured', done: true, fail: false },
-    { label: 'Host review', done: status === 'confirmed' || status === 'checked_in' || status === 'completed' || status === 'declined', fail: status === 'declined' },
-    { label: status === 'declined' ? 'Declined' : 'Confirmed', done: status === 'confirmed' || status === 'checked_in' || status === 'completed', fail: status === 'declined' },
-  ];
-  const cells = steps.map((s, i) => {
-    const circleStyle = s.fail
-      ? `border:2px solid ${T.err};background:${T.err};color:#fff;`
-      : s.done
-        ? `border:2px solid ${T.tide};background:${T.tide};color:#fff;`
-        : i === 1
-          ? `border:2px solid ${T.tide};background:${T.paper2};color:${T.tide};`
-          : `border:2px solid ${T.line2};background:${T.paper2};color:${T.ink3};`;
-    const inner = s.fail ? '✕' : s.done && i !== 1 ? '✓' : i + 1;
-    const circle = `<div style="width:28px;height:28px;border-radius:50%;${circleStyle}display:inline-block;line-height:24px;font-size:12px;font-weight:600;font-family:${FONT_BODY};">${inner}</div>`;
-    const label = `<div style="font-family:${FONT_MONO};font-size:9px;letter-spacing:0.06em;text-transform:uppercase;color:${T.ink3};margin-top:6px;white-space:nowrap;">${s.label}</div>`;
-    return `<td align="center" valign="top" style="padding:0 2px;">${circle}${label}</td>`;
-  });
-  const bar = (done) => `<td style="width:100%;"><div style="height:2px;border-radius:2px;background:${done ? T.tide : T.line};"></div></td>`;
-  return `
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:12px;">
-      <tr>
-        ${cells[0]}
-        ${bar(true)}
-        ${cells[1]}
-        ${bar(steps[1].done)}
-        ${cells[2]}
-      </tr>
-    </table>`;
-}
-
-function receiptRows(booking) {
-  const row = (label, value, opts = {}) => `
-      <tr>
-        <td style="padding:7px 0;${opts.dash ? `border-bottom:1px dashed ${T.line2};` : ''}font-size:12.5px;color:${opts.muted ? T.ink3 : T.ink2};">${label}</td>
-        <td align="right" style="padding:7px 0;${opts.dash ? `border-bottom:1px dashed ${T.line2};` : ''}font-family:${FONT_MONO};font-weight:600;font-size:12.5px;color:${opts.tone || T.ink};">${value}</td>
-      </tr>`;
-  return `
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-        ${row('Total stay tariff', `₹${fmtMoney(booking.total_amount)}`, { dash: true })}
-        ${row('20% hold paid online', `₹${fmtMoney(booking.advance_paid)}`, { tone: T.tide, dash: true })}
-        ${row('80% balance at property', `₹${fmtMoney(booking.balance_payable_at_property)}`, { dash: true })}
-        ${row('Convenience fee', '₹0', { muted: true, tone: T.ok })}
-      </table>`;
-}
-
-function qrBlock(referenceCode) {
-  const bars = [16, 29, 23, 29, 19, 26, 29, 16, 26, 20, 29, 23, 16, 29, 19, 26, 29, 16, 26, 20, 29, 23, 16, 29, 19, 26, 29, 16, 26, 20, 29, 23, 16, 29, 19, 26, 29, 16, 26, 20, 29, 23];
-  const barTds = bars
-    .map(
-      (h) =>
-        `<td width="2" style="padding:0;"><div style="width:2px;height:${h}px;background:${T.ink};display:inline-block;"></div></td>`
-    )
-    .join('');
-  return `
-    <div style="margin-top:26px;padding-top:24px;border-top:1px dashed ${T.line2};text-align:center;">
-      <img src="cid:qrcode" width="112" height="112" style="border:1px solid ${T.line};border-radius:12px;padding:6px;background:#fff;display:inline-block;">
-      <div style="font-family:${FONT_MONO};font-size:9px;letter-spacing:0.16em;text-transform:uppercase;color:${T.ink3};margin:8px 0 16px;">Scan to verify</div>
-      <table role="presentation" align="center" cellpadding="0" cellspacing="0" style="height:29px;"><tr>${barTds}</tr></table>
-      <div style="font-family:${FONT_MONO};font-size:14px;font-weight:600;letter-spacing:0.25em;color:${T.ink};margin-top:6px;">${escapeHtml(referenceCode)}</div>
-      <div style="font-family:${FONT_MONO};font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:${T.ok};margin-top:6px;">Valid for check-in</div>
-    </div>`;
-}
-
-function voucher({ booking, stayTitle, location, hostName, stayImage }) {
-  return `
-    <div style="background:${T.elevated};border:1px solid ${T.line};border-radius:24px;overflow:hidden;margin:22px 0;">
-      <div style="background:${T.paper2};border-bottom:1px solid ${T.line};padding:16px 24px;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="font-size:13px;line-height:24px;">
           <tr>
-            <td valign="middle">
-              ${overline('E-voucher', T.tide, 'check-circle')}
-              <span style="display:inline-block;margin-left:12px;border:1px solid ${T.line};border-radius:8px;background:${T.elevated};padding:5px 10px;font-family:${FONT_MONO};font-size:15px;font-weight:600;color:${T.ink};">${escapeHtml(booking.reference_code)}</span>
+            <td style="color:#616e6a;padding:4px 0;">Total stay tariff (${nights(booking)} night${nights(booking) === 1 ? '' : 's'})</td>
+            <td align="right" style="font-weight:700;color:#1c2826;padding:4px 0;font-family:'Courier New',monospace;">&#8377;${fmtMoney(booking.total_amount)}</td>
+          </tr>
+          <tr>
+            <td style="color:${holdColor};font-weight:700;padding:4px 0;">
+              ${icon(holdIcon, 12, 'margin-right:4px;')}
+              ${holdLabel}
             </td>
-            <td align="right" valign="middle">
-              <span style="font-size:12px;color:${T.ink3};margin-right:14px;">Booked on ${escapeHtml(fmtDate(booking.created_at))}</span>
-              ${statusStamp(booking.status, booking.payment_status)}
+            <td align="right" style="font-weight:800;color:${holdColor};padding:4px 0;font-family:'Courier New',monospace;">&#8377;${fmtMoney(booking.advance_paid)}</td>
+          </tr>
+          <tr>
+            <td style="color:#616e6a;padding:4px 0;">${payableLabel}</td>
+            <td align="right" style="font-weight:700;color:#1c2826;padding:4px 0;font-family:'Courier New',monospace;">&#8377;${fmtMoney(booking.balance_payable_at_property)}</td>
+          </tr>
+          <tr>
+            <td style="color:#616e6a;padding:4px 0;">Platform &amp; Concierge fee</td>
+            <td align="right" style="font-weight:600;color:#059669;padding:4px 0;">Waived</td>
+          </tr>
+          <tr>
+            <td style="color:#616e6a;padding:4px 0;">Coastal Tourism &amp; Green Cess</td>
+            <td align="right" style="font-weight:600;color:#616e6a;padding:4px 0;">Included</td>
+          </tr>
+          <tr><td colspan="2" style="padding-top:8px;border-bottom:1px dashed #ded9c8;"></td></tr>
+          <tr>
+            <td style="font-weight:800;font-size:13px;color:#0f3d35;padding-top:10px;">Payable at Property</td>
+            <td align="right" style="font-weight:800;font-size:17px;color:#0f3d35;padding-top:10px;font-family:'Courier New',monospace;">&#8377;${fmtMoney(booking.balance_payable_at_property)}</td>
+          </tr>
+        </table>`;
+}
+
+function voucher({ booking, stay, paymentState, statusPill, extraBlock }) {
+  const n = nights(booking);
+  const roomLabel = booking.room_number ? `Room ${booking.room_number}` : 'Private Chalet';
+  return `
+        <table role="presentation" class="email-container" width="620" border="0" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;background-color:#ffffff;border:1px solid #e3decb;border-radius:16px;overflow:hidden;box-shadow:0 6px 24px rgba(15,61,53,0.07);">
+
+          <tr>
+            <td style="padding:18px 24px;background:linear-gradient(to right,#faf9f5,#f5f3ec);border-bottom:1px solid #eae5d4;">
+              <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td width="76" valign="middle" style="padding-right:14px;">
+                    <img src="cid:coastallogo" alt="Coastal Trails" width="68" height="68" style="display:block;width:68px;height:auto;border:0;border-radius:12px;background:#fff;">
+                  </td>
+                  <td valign="middle" class="mobile-stack">
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td>
+                          <span style="background-color:#e4f2ee;color:#0f3d35;font-size:10px;font-weight:800;letter-spacing:0.8px;padding:4px 8px;border-radius:5px;text-transform:uppercase;">Digital Pass 2026</span>
+                          <span style="font-family:'Courier New',monospace;font-size:15px;font-weight:800;color:#0f3d35;letter-spacing:0.5px;margin-left:8px;">${escapeHtml(booking.reference_code)}</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding-top:5px;font-size:11px;color:#697471;">
+                          Official Stay Voucher &bull; Booked ${escapeHtml(fmtDate(booking.created_at))}
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td align="right" valign="middle" class="mobile-stack" style="padding-top:4px;">
+                    ${statusPill}
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
-        </table>
-      </div>
 
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-        <tr>
-          <td valign="top" width="62%" style="padding:26px 28px;">
-            ${stayImage ? `<img src="${escapeHtml(stayImage)}" alt="" width="100%" style="border-radius:16px;border:1px solid ${T.line};display:block;">` : ''}
-            <div style="margin-top:18px;">
-              <div style="display:inline-block;background:${T.paper2};border:1px solid ${T.line};border-radius:999px;padding:3px 12px;font-family:${FONT_MONO};font-size:9px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:${T.ink2};">Family stewarded</div>
-            </div>
-            <h2 style="margin:12px 0 6px;font-family:${FONT_DISPLAY};font-size:24px;font-weight:600;letter-spacing:-0.02em;color:${T.ink};">${escapeHtml(stayTitle)}</h2>
-            <p style="margin:0;font-size:12.5px;color:${T.ink2};">${iconImg('map-pin', 13)} ${escapeHtml(location)} · Gokarna, Karnataka</p>
+          <tr>
+            <td style="padding:24px 24px 18px 24px;">
+              <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td width="125" valign="top" style="padding-right:18px;" class="mobile-stack">
+                    ${stay.image ? `<img src="${escapeHtml(stay.image)}" alt="${escapeHtml(stay.title)}" width="125" height="92" style="border-radius:10px;display:block;object-fit:cover;border:1px solid #e3decb;">` : ''}
+                  </td>
+                  <td valign="top" class="mobile-stack">
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin-bottom:6px;">
+                      <tr>
+                        <td style="background-color:#edf7f3;border:1px solid #c9e8dc;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;color:#059669;">
+                          ${icon('leaf', 11, 'margin-right:3px;')}
+                          Eco-Certified 2026
+                        </td>
+                      </tr>
+                    </table>
+                    <h2 style="margin:0 0 5px 0;font-family:Georgia,'Times New Roman',serif;font-size:20px;line-height:24px;color:#103831;font-weight:700;">
+                      ${escapeHtml(stay.title)}
+                    </h2>
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td valign="middle" style="padding-right:5px;">${icon('map-pin', 13)}</td>
+                        <td valign="middle" style="font-size:12px;color:#586561;">
+                          ${escapeHtml(stay.location)} &bull; Gokarna, Karnataka 581326
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
 
-            <div style="background:${T.paper2};border:1px solid ${T.line};border-radius:16px;padding:20px 22px;margin-top:22px;">
-              ${overline('Itinerary', T.tide, 'calendar-days')}
-              ${itineraryRow(booking)}
-            </div>
+              <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="margin-top:14px;background-color:#f7f6f0;border:1px solid #ebe6d5;border-radius:8px;padding:8px 14px;">
+                <tr>
+                  <td valign="middle" width="18" style="padding-right:6px;">${icon('sun', 15)}</td>
+                  <td valign="middle" style="font-size:11px;color:#586561;">
+                    <strong style="color:#1c2826;">Coastal Forecast:</strong> 28&deg;C Clear Skies &bull; Arabian Sea Sunset at 6:18 PM &bull; Gentle Clifftop Breeze
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
 
-            <div style="margin-top:22px;">
-              ${overline('Reservation progress', T.tide, 'check-circle')}
-              ${progressRow(booking.status)}
-            </div>
+          <tr>
+            <td style="padding:0 24px 22px 24px;">
+              <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color:#faf9f4;border:1px solid #ebe6d5;border-radius:12px;padding:18px 20px;">
+                <tr>
+                  <td colspan="3" style="padding-bottom:12px;border-bottom:1px solid #ece7d6;">
+                    <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td align="left">
+                          <table role="presentation" border="0" cellpadding="0" cellspacing="0">
+                            <tr>
+                              <td valign="middle" style="padding-right:6px;">${icon('calendar', 14)}</td>
+                              <td valign="middle" style="font-size:11px;font-weight:800;color:#0f3d35;letter-spacing:0.8px;text-transform:uppercase;">Stay Schedule</td>
+                            </tr>
+                          </table>
+                        </td>
+                        <td align="right" style="font-size:11px;color:#76807d;font-weight:600;">${escapeHtml(roomLabel)}</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td width="38%" valign="top" class="itinerary-cell" style="padding-top:14px;">
+                    <div style="font-size:11px;color:#76807d;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;">Check-In</div>
+                    <div style="font-size:16px;font-weight:800;color:#152422;margin:3px 0;">${escapeHtml(fmtDate(booking.check_in, { long: true }))}</div>
+                    <div style="font-size:12px;color:#586561;">${icon('clock', 11, 'margin-right:3px;')} From 12:00 PM onwards</div>
+                  </td>
+                  <td width="24%" align="center" valign="middle" class="itinerary-mid" style="border-left:1px dashed #dad5c3;border-right:1px dashed #dad5c3;padding:14px 8px 0 8px;">
+                    <div style="display:inline-block;background-color:#ffffff;border:1px solid #dcd7c5;border-radius:20px;padding:4px 12px;font-size:12px;font-weight:800;color:#0f3d35;">
+                      ${icon('moon', 12, 'margin-right:3px;')} ${n} Night${n > 1 ? 's' : ''}
+                    </div>
+                    <div style="font-size:11px;color:#76807d;margin-top:6px;white-space:nowrap;">${icon('users', 12, 'margin-right:2px;')} ${booking.guests_count} Guests &bull; ${escapeHtml(roomLabel)}</div>
+                  </td>
+                  <td width="38%" align="right" valign="top" class="itinerary-cell" style="padding-top:14px;">
+                    <div style="font-size:11px;color:#76807d;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;">Check-Out</div>
+                    <div style="font-size:16px;font-weight:800;color:#152422;margin:3px 0;">${escapeHtml(fmtDate(booking.check_out, { long: true }))}</div>
+                    <div style="font-size:12px;color:#586561;">Before 11:00 AM ${icon('clock', 11, 'margin-left:3px;')}</div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
 
-            <div style="margin-top:22px;background:${T.paper2};border:1px solid ${T.line};border-radius:14px;padding:14px 16px;font-size:11.5px;color:${T.ink2};line-height:1.55;">
-              ${iconImg('shield-check', 16)} Your dates are locked. Our concierge coordinates your arrival — no middleman contact needed.
-            </div>
-          </td>
+          <tr>
+            <td style="padding:0 24px;">
+              <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
+                <tr><td style="border-top:2px dashed #ded9c8;font-size:1px;line-height:1px;height:1px;">&nbsp;</td></tr>
+              </table>
+            </td>
+          </tr>
 
-          <td valign="top" width="38%" style="padding:26px 28px;border-left:1px dashed ${T.line2};">
-            ${overline('Fare receipt', T.tide, 'credit-card')}
-            <div style="margin-top:14px;">${receiptRows(booking)}</div>
-          </td>
-        </tr>
-      </table>
+          <tr>
+            <td style="padding:24px;">
+              <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td width="260" valign="top" class="mobile-stack mobile-border-bottom" style="padding-right:20px;">
+                    <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color:#faf9f4;border:1px solid #e7e3d4;border-radius:12px;padding:18px 16px;text-align:center;">
+                      <tr>
+                        <td align="center">
+                          <div style="font-size:10px;font-weight:800;color:#0f3d35;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px;">Fast-Track Check-in Pass</div>
+                          <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border:1px solid #ded9c8;border-radius:10px;padding:10px;margin:0 auto;">
+                            <tr>
+                              <td align="center">
+                                <img src="cid:qrcode" alt="Check-in QR Code ${escapeHtml(booking.reference_code)}" width="140" height="140" style="display:block;">
+                              </td>
+                            </tr>
+                          </table>
+                          <div style="font-family:'Courier New',monospace;font-size:13px;font-weight:800;letter-spacing:1px;color:#0f3d35;margin-top:10px;background-color:#e5f2ee;padding:4px 12px;border-radius:6px;display:inline-block;">${escapeHtml(booking.reference_code)}</div>
+                          <div style="font-size:10px;color:#76807d;margin-top:6px;text-transform:uppercase;letter-spacing:0.5px;">Encrypted 2026 Pass &bull; Scan on Arrival</div>
+                          <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin-top:12px;background-color:#ffffff;border:1px solid #ded9c8;border-radius:6px;padding:5px 10px;">
+                            <tr>
+                              <td valign="middle" style="padding-right:5px;">${icon('smartphone', 13)}</td>
+                              <td valign="middle" style="font-size:10px;font-weight:700;color:#0f3d35;">Apple &amp; Google Wallet Ready</td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td valign="top" class="mobile-stack">
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin-bottom:12px;">
+                      <tr>
+                        <td valign="middle" style="padding-right:6px;">${icon('receipt', 14)}</td>
+                        <td valign="middle" style="font-size:11px;font-weight:800;color:#0f3d35;text-transform:uppercase;letter-spacing:0.8px;">Fare Receipt</td>
+                      </tr>
+                    </table>
+                    ${receiptRows(booking, paymentState)}
+                    <div style="margin-top:14px;background-color:#f7f6ef;border-radius:8px;padding:8px 12px;font-size:11px;color:#697471;">
+                      Accepted at front desk: UPI (GPay/PhonePe), Card tap, or Cash.
+                    </div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
 
-      <div style="padding:0 28px 28px;">
-        ${qrBlock(booking.reference_code)}
-      </div>
-    </div>`;
+          ${extraBlock || ''}
+
+          <tr>
+            <td style="padding:0 24px 24px 24px;">
+              <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color:#faf9f5;border:1px solid #ede8d8;border-radius:10px;padding:14px 18px;font-size:11px;color:#5f6c68;line-height:18px;">
+                <tr>
+                  <td valign="top" width="50%" class="mobile-stack" style="padding-right:10px;">
+                    ${icon('id-card', 13, 'margin-right:4px;')}
+                    <strong>Digital ID Check:</strong> Government photo ID (Aadhaar / Passport) is requested for all adult guests at registration.
+                  </td>
+                  <td valign="top" width="50%" class="mobile-stack mobile-spacer">
+                    ${icon('leaf', 13, 'margin-right:4px;')}
+                    <strong>Eco Coastal Zone:</strong> Clifftop quiet hours begin at 10:30 PM. Comfortable walking footwear is advised for the stone cliff trail.
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="background-color:#f6f4ec;border-top:1px solid #ebe6d5;padding:20px 24px;text-align:center;">
+              <p style="margin:0 0 6px 0;font-size:12px;color:#43504d;font-weight:600;">Have questions about your booking or need trail directions?</p>
+              <p style="margin:0 0 12px 0;font-size:12px;color:#626f6b;">Our 24/7 team is ready to assist at <a href="mailto:support@coastaltrails.in" style="color:#0f3d35;font-weight:800;text-decoration:underline;">support@coastaltrails.in</a></p>
+              <p style="margin:0;font-size:10px;color:#8e9794;letter-spacing:0.3px;">&copy; 2026 Coastal Trails Hospitality Network &bull; Gokarna, Karnataka. All rights reserved.</p>
+            </td>
+          </tr>
+        </table>`;
 }
 
-function shell({ banner, content, ctaLabel, ctaHref, whatsappHref, guestEmail }) {
+function emailShell({ title, inner }) {
   return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
-<body style="margin:0;padding:0;background:${T.paper};font-family:${FONT_BODY};color:${T.ink};">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${T.paper};">
-    <tr><td style="padding:22px 16px 0;" align="center">
-      <img src="cid:coastallogo" alt="Coastal Trails" width="84" height="84" style="display:block;border:1px solid ${T.line};border-radius:20px;background:#fff;">
-      <div style="font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.24em;text-transform:uppercase;color:${T.ink3};margin-top:10px;">Coastal Trails · Gokarna</div>
-      <div style="height:3px;background:${T.glow};margin:14px 0 0;border:0;"></div>
-    </td></tr>
-    <tr><td style="padding:6px 16px 0;" align="center">
-      <img src="cid:coastallogo" width="300" style="opacity:0.06;display:block;border:0;">
-    </td></tr>
-    <tr><td style="padding:0 12px 16px;" align="center">
-      <div style="width:100%;text-align:left;margin-top:-170px;">
-        ${banner || ''}
-        ${content}
-      </div>
-    </td></tr>
-    <tr><td style="padding:0 12px;" align="center">
-      ${ctaLabel || whatsappHref ? `
-      <div style="margin:18px 0 8px;text-align:center;">
-        ${ctaLabel ? `<a href="${ctaHref}" style="display:inline-block;background:${T.tide};color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:13px 28px;border-radius:12px;">${ctaLabel}</a>` : ''}
-        ${whatsappHref ? `<a href="${whatsappHref}" style="display:inline-block;margin-left:10px;border:1.5px solid ${T.tide};color:${T.tide};text-decoration:none;font-weight:600;font-size:14px;padding:12px 24px;border-radius:12px;">${iconImg('message-circle', 14)} WhatsApp host</a>` : ''}
-      </div>` : ''}
-    </td></tr>
-    <tr><td style="padding:14px 24px 24px;" align="center">
-      <p style="margin:0 0 6px;font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:${T.ink3};">Coastal Trails · Gokarna</p>
-      ${guestEmail ? `<p style="margin:0;font-family:${FONT_MONO};font-size:10px;color:${T.ink3};">${escapeHtml(guestEmail)}</p>` : ''}
-    </td></tr>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="x-apple-disable-message-reformatting">
+  <title>${title}</title>
+  <style type="text/css">
+    body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+    table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+    img { -ms-interpolation-mode: bicubic; border: 0; outline: none; text-decoration: none; display: block; }
+    body { margin: 0; padding: 0; width: 100% !important; background-color: #f6f5ef; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+    @media only screen and (max-width: 620px) {
+      .email-container { width: 100% !important; max-width: 100% !important; margin: 0 auto !important; }
+      .mobile-padding { padding-left: 16px !important; padding-right: 16px !important; }
+      .mobile-stack { display: block !important; width: 100% !important; max-width: 100% !important; box-sizing: border-box !important; }
+      .mobile-stack-center { display: block !important; width: 100% !important; text-align: center !important; }
+      .mobile-hide { display: none !important; }
+      .mobile-spacer { height: 16px !important; }
+      .mobile-border-bottom { border-bottom: 1px dashed #ded9c8 !important; padding-bottom: 16px !important; margin-bottom: 16px !important; }
+      .itinerary-cell { display: block !important; width: 100% !important; text-align: left !important; padding: 10px 0 !important; }
+      .itinerary-mid { display: block !important; width: 100% !important; border-left: none !important; border-right: none !important; border-top: 1px dashed #ded9c8 !important; border-bottom: 1px dashed #ded9c8 !important; padding: 12px 0 !important; margin: 8px 0 !important; text-align: left !important; }
+    }
+    @media print {
+      body { background-color: #ffffff !important; padding: 0 !important; }
+      .no-print { display: none !important; }
+      .email-container { box-shadow: none !important; border: 1px solid #d0ccc0 !important; }
+    }
+  </style>
+</head>
+<body style="margin:0;padding:28px 0;background-color:#f6f5ef;color:#1c2826;-webkit-font-smoothing:antialiased;">
+  <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" bgcolor="#f6f5ef">
+    <tr>
+      <td align="center" style="padding:0 14px;">
+        ${inner}
+        <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
+          <tr><td height="28" style="font-size:1px;line-height:1px;">&nbsp;</td></tr>
+        </table>
+      </td>
+    </tr>
   </table>
 </body>
 </html>`;
+}
+
+function retryBlock(ctaLabel, ctaHref) {
+  return `
+          <tr class="no-print">
+            <td style="padding:0 24px 22px 24px;">
+              <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="text-align:center;">
+                <tr>
+                  <td align="center">
+                    <a href="${ctaHref}" style="display:inline-block;background-color:#0f3d35;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:13px 30px;border-radius:10px;">${ctaLabel}</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>`;
 }
 
 async function send({ to, subject, html, label, qrText }) {
@@ -285,127 +394,86 @@ async function send({ to, subject, html, label, qrText }) {
     return { skipped: true };
   }
   const qrBuffer = qrText
-    ? await QRCode.toBuffer(qrText, { width: 236, margin: 1, color: { dark: '#16222E', light: '#FFFFFF' } })
+    ? await QRCode.toBuffer(qrText, { width: 280, margin: 1, color: { dark: '#0f3d35', light: '#ffffff' } })
     : null;
   await transporter.sendMail({
-    from: `"Coastal Trails Bookings" <${process.env.SMTP_USER}>`,
-    replyTo: process.env.MAIL_REPLY_TO || process.env.SMTP_USER,
+    from: `"Coastal Trails" <${process.env.SMTP_USER}>`,
+    replyTo: process.env.MAIL_REPLY_TO || 'support@coastaltrails.in',
     to,
     subject,
     html,
     attachments: [
-      {
-        filename: 'brand-logo.png',
-        path: LOGO_PATH,
-        cid: 'coastallogo',
-      },
+      { filename: 'brand-logo.png', path: LOGO_PATH, cid: 'coastallogo' },
       ...ICON_NAMES.map((name) => ({
         filename: `${name}.png`,
         path: path.join(ICON_DIR, `${name}.png`),
         cid: `icon-${name}`,
       })),
-      ...(qrBuffer
-        ? [
-            {
-              filename: 'qr.png',
-              content: qrBuffer,
-              cid: 'qrcode',
-            },
-          ]
-        : []),
+      ...(qrBuffer ? [{ filename: 'qr.png', content: qrBuffer, cid: 'qrcode' }] : []),
     ],
   });
   console.log(`[mail] ${label} sent → ${to}`);
   return { sent: true };
 }
 
+function qrTextFor(booking) {
+  return `${SITE_URL}/pass/${booking.reference_code}`;
+}
+
 export async function sendPaymentSuccessEmail({ to, booking, stayTitle, location, hostName, hostWhatsapp, guestName, stayImage }) {
-  const whatsapp = hostWhatsapp ? `https://wa.me/${String(hostWhatsapp).replace(/\D/g, '')}` : null;
-  const html = shell({
-    banner: `
-      <div style="background:${T.paper2};border:1px solid ${T.line};border-radius:16px;padding:18px 24px;margin-bottom:16px;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-          <td>
-            <div style="font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${T.ok};margin-bottom:6px;">Payment successful</div>
-            <div style="font-family:${FONT_DISPLAY};font-size:21px;font-weight:600;color:${T.ink};">Your stay is booked, ${escapeHtml(guestName.split(' ')[0])}</div>
-          </td>
-          <td align="right" valign="middle">
-            <div style="background:${T.elevated};border:1px solid ${T.ok};border-radius:12px;width:48px;height:48px;line-height:48px;text-align:center;">${iconImg('check-circle', 22)}</div>
-          </td>
-        </tr></table>
-      </div>`,
-    content: voucher({ booking, stayTitle, location, hostName, stayImage }),
-    ctaLabel: 'View my booking',
-    ctaHref: `${SITE_URL}/bookings`,
-    whatsappHref: whatsapp,
-    guestEmail: to,
+  const stay = { title: stayTitle, location, image: stayImage };
+  const statusPill = booking.status === 'confirmed' || booking.status === 'checked_in' || booking.status === 'completed' ? PILLS.confirmed() : PILLS.awaiting();
+  const html = emailShell({
+    title: `Official Booking Voucher & Pass - ${stayTitle} | Coastal Trails`,
+    inner: voucher({ booking, stay, paymentState: 'paid', statusPill }),
   });
-  return send({ to, subject: `Payment received · ${booking.reference_code} — ${stayTitle}`, html, label: `payment email for ${booking.reference_code}`, qrText: `${SITE_URL}/reservation/${booking.reference_code}` });
+  return send({ to, subject: `Payment received · ${booking.reference_code} — ${stayTitle}`, html, label: `payment email for ${booking.reference_code}`, qrText: qrTextFor(booking) });
+}
+
+export async function sendPaymentFailedEmail({ to, booking, stayTitle, location, hostName, guestName, stayImage }) {
+  const stay = { title: stayTitle, location, image: stayImage };
+  const html = emailShell({
+    title: `Payment failed - Retry your hold | Coastal Trails`,
+    inner:
+      voucher({ booking, stay, paymentState: 'failed', statusPill: PILLS.failed() }) +
+      retryBlock('Retry payment', `${SITE_URL}/bookings`),
+  });
+  return send({ to, subject: `Payment failed · ${booking.reference_code} — retry your 20% hold`, html, label: `payment failed email for ${booking.reference_code}`, qrText: qrTextFor(booking) });
 }
 
 export async function sendHoldCreatedEmail({ to, booking, stayTitle, location, hostName, guestName, stayImage }) {
-  const amountDue = Number(booking.total_amount) * 0.2;
-  const html = shell({
-    banner: `
-      <div style="background:${T.paper2};border:1px solid ${T.warn};border-radius:16px;padding:18px 24px;margin-bottom:16px;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-          <td>
-            <div style="font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${T.warn};margin-bottom:6px;">Hold created</div>
-            <div style="font-family:${FONT_DISPLAY};font-size:21px;font-weight:600;color:${T.ink};">Your dates are held, ${escapeHtml(guestName.split(' ')[0])}</div>
-            <div style="font-size:12.5px;color:${T.ink2};margin-top:4px;">Pay <strong>₹${fmtMoney(amountDue)}</strong> within 24 hours to lock this stay — the rest is paid at the property.</div>
-          </td>
-          <td align="right" valign="middle">
-            <div style="background:${T.elevated};border:1px solid ${T.gold};border-radius:12px;width:48px;height:48px;line-height:48px;text-align:center;">${iconImg('lock', 22)}</div>
-          </td>
-        </tr></table>
-      </div>`,
-    content: voucher({ booking, stayTitle, location, hostName, stayImage }),
-    ctaLabel: `Pay ₹${fmtMoney(amountDue)} now`,
-    ctaHref: `${SITE_URL}/bookings`,
-    guestEmail: to,
+  const stay = { title: stayTitle, location, image: stayImage };
+  const html = emailShell({
+    title: `Booking Voucher & Pass - ${stayTitle} | Coastal Trails`,
+    inner:
+      voucher({ booking, stay, paymentState: 'pending', statusPill: PILLS.pending() }) +
+      retryBlock('Pay 20% hold now', `${SITE_URL}/bookings`),
   });
-  return send({ to, subject: `Hold created · ${booking.reference_code} — complete your payment`, html, label: `hold email for ${booking.reference_code}`, qrText: `${SITE_URL}/reservation/${booking.reference_code}` });
+  return send({ to, subject: `Hold created · ${booking.reference_code} — complete your payment`, html, label: `hold email for ${booking.reference_code}`, qrText: qrTextFor(booking) });
 }
 
 export async function sendBookingStatusEmail({ to, booking, stayTitle, location, hostName, status, guestName, stayImage }) {
-  const meta = {
-    confirmed: { icon: 'check-circle', bg: T.ok, label: 'Booking confirmed', headline: 'See you soon, ' + escapeHtml(guestName.split(' ')[0]) },
-    declined: { icon: 'x-circle', bg: T.err, label: 'Booking declined', headline: 'This stay could not be confirmed' },
-    cancelled: { icon: 'x-circle', bg: T.ink3, label: 'Booking cancelled', headline: 'Booking cancelled' },
-  };
-  const m = meta[status] || meta.cancelled;
-  const html = shell({
-    banner: `
-      <div style="background:${T.paper2};border:1px solid ${T.line};border-radius:16px;padding:18px 24px;margin-bottom:16px;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
-          <td>
-            <div style="font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${m.bg};margin-bottom:6px;">${m.label}</div>
-            <div style="font-family:${FONT_DISPLAY};font-size:21px;font-weight:600;color:${T.ink};">${m.headline}</div>
-          </td>
-          <td align="right" valign="middle">
-            <div style="background:${T.elevated};border:1px solid ${m.bg};border-radius:12px;width:48px;height:48px;line-height:48px;text-align:center;">${iconImg(m.icon, 22)}</div>
-          </td>
-        </tr></table>
-      </div>`,
-    content: voucher({ booking, stayTitle, location, hostName, stayImage }),
-    ctaLabel: status === 'confirmed' ? 'View my booking' : 'Explore other stays',
-    ctaHref: status === 'confirmed' ? `${SITE_URL}/bookings` : SITE_URL,
-    guestEmail: to,
+  const stay = { title: stayTitle, location, image: stayImage };
+  const statusPill =
+    status === 'confirmed' || status === 'checked_in' || status === 'completed'
+      ? PILLS.confirmed()
+      : status === 'declined'
+        ? PILLS.declined()
+        : PILLS.cancelled();
+  const paymentState = booking.payment_status === 'paid' ? 'paid' : booking.payment_status === 'refunded' ? 'refunded' : 'pending';
+  const html = emailShell({
+    title: `Booking Update - ${stayTitle} | Coastal Trails`,
+    inner: voucher({ booking, stay, paymentState, statusPill }),
   });
-  return send({ to, subject: `${m.label} · ${booking.reference_code}`, html, label: `status email (${status}) for ${booking.reference_code}`, qrText: `${SITE_URL}/reservation/${booking.reference_code}` });
+  return send({ to, subject: `Booking update · ${booking.reference_code} — ${status}`, html, label: `status email (${status}) for ${booking.reference_code}`, qrText: qrTextFor(booking) });
 }
 
 export async function sendAdminNewBookingAlert({ to, booking, stayTitle, location, hostName, guestName, stayImage }) {
-  const html = shell({
-    banner: `
-      <div style="background:${T.paper2};border:1px solid ${T.line};border-radius:16px;padding:18px 24px;margin-bottom:16px;">
-        <div style="font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${T.ink3};margin-bottom:6px;">New booking request</div>
-        <div style="font-family:${FONT_DISPLAY};font-size:21px;font-weight:600;color:${T.ink};">${escapeHtml(guestName)} just held ${escapeHtml(stayTitle)}</div>
-        <div style="font-size:12.5px;color:${T.ink2};margin-top:4px;">${escapeHtml(location)} · ${escapeHtml(fmtDate(booking.check_in))} → ${escapeHtml(fmtDate(booking.check_out))} · ${booking.guests_count} guest${booking.guests_count > 1 ? 's' : ''}</div>
-      </div>`,
-    content: voucher({ booking, stayTitle, location, hostName, stayImage }),
-    ctaLabel: 'Review bookings',
-    ctaHref: `${SITE_URL}/bookings`,
+  const stay = { title: stayTitle, location, image: stayImage };
+  const paymentState = booking.payment_status === 'paid' ? 'paid' : 'pending';
+  const html = emailShell({
+    title: `New Booking - ${booking.reference_code} | Coastal Trails`,
+    inner: voucher({ booking, stay, paymentState, statusPill: PILLS.newrequest() }),
   });
-  return send({ to, subject: `New booking · ${booking.reference_code} — ${guestName}`, html, label: `admin alert for ${booking.reference_code}`, qrText: `${SITE_URL}/reservation/${booking.reference_code}` });
+  return send({ to, subject: `New booking · ${booking.reference_code} — ${guestName}`, html, label: `admin alert for ${booking.reference_code}`, qrText: qrTextFor(booking) });
 }
