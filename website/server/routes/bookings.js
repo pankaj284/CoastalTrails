@@ -30,6 +30,8 @@ async function notifyBookingCreated(booking, stay, userEmail) {
         hostName: stay?.host_name || '',
         stayImage,
         guestName: booking.user_name,
+        rating: stay?.rating,
+        reviews: stay?.reviews_count,
       });
     }
     const adminEmail = process.env.MAIL_ADMIN || process.env.SMTP_USER;
@@ -42,6 +44,8 @@ async function notifyBookingCreated(booking, stay, userEmail) {
         hostName: stay?.host_name || '',
         stayImage,
         guestName: booking.user_name,
+        rating: stay?.rating,
+        reviews: stay?.reviews_count,
       });
     }
   } catch (err) {
@@ -54,7 +58,7 @@ async function notifyStatusChange(booking, status) {
   try {
     const user = await get('SELECT email FROM users WHERE id = ? OR phone = ?', [booking.user_id, booking.user_phone]);
     const stay = await get(
-      `SELECT h.title, h.location_display, h.host_name, h.host_whatsapp,
+      `SELECT h.title, h.location_display, h.host_name, h.host_whatsapp, h.rating, h.reviews_count,
               (SELECT image_url FROM homestay_images i WHERE i.homestay_id = h.id ORDER BY i.sort_order ASC LIMIT 1) AS image
        FROM homestays h WHERE h.id = ?`,
       [booking.homestay_id]
@@ -70,6 +74,8 @@ async function notifyStatusChange(booking, status) {
       stayImage: stay?.image || '',
       status,
       guestName: booking.user_name,
+      rating: stay?.rating,
+      reviews: stay?.reviews_count,
     });
   } catch (err) {
     console.error('[mail] status notify failed:', err.message);
