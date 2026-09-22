@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import QRCode from 'qrcode';
 
 const SITE_URL = process.env.SITE_URL || 'https://coastaltrails.in';
 
@@ -12,9 +13,9 @@ const ICON_NAMES = ['check-circle', 'calendar-days', 'moon', 'log-out', 'shield-
 
 // Deep Water Cartography — light "Chart Paper" theme (from website/client/DESIGN.md)
 const T = {
-  paper: '#FCFBF7',
+  paper: '#FFFFFF',
   paper2: '#F6F3EA',
-  elevated: '#FDFCF9',
+  elevated: '#FFFFFF',
   ink: '#16222E',
   ink2: '#4C5A68',
   ink3: '#7E8B97',
@@ -167,7 +168,7 @@ function receiptRows(booking) {
       </table>`;
 }
 
-function barcode(referenceCode) {
+function qrBlock(referenceCode) {
   const bars = [16, 29, 23, 29, 19, 26, 29, 16, 26, 20, 29, 23, 16, 29, 19, 26, 29, 16, 26, 20, 29, 23, 16, 29, 19, 26, 29, 16, 26, 20, 29, 23, 16, 29, 19, 26, 29, 16, 26, 20, 29, 23];
   const barTds = bars
     .map(
@@ -176,10 +177,20 @@ function barcode(referenceCode) {
     )
     .join('');
   return `
-    <div style="margin-top:26px;padding-top:22px;border-top:1px dashed ${T.line2};text-align:center;">
-      <table role="presentation" align="center" cellpadding="0" cellspacing="0" style="height:29px;"><tr>${barTds}</tr></table>
-      <div style="font-family:${FONT_MONO};font-size:14px;font-weight:600;letter-spacing:0.25em;color:${T.ink};margin-top:6px;">${escapeHtml(referenceCode)}</div>
-      <div style="font-family:${FONT_MONO};font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:${T.ok};margin-top:6px;">Valid for check-in</div>
+    <div style="margin-top:26px;padding-top:24px;border-top:1px dashed ${T.line2};">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td width="130" align="center" valign="middle">
+            <img src="cid:qrcode" width="118" height="118" style="border:1px solid ${T.line};border-radius:12px;padding:6px;background:#fff;">
+            <div style="font-family:${FONT_MONO};font-size:9px;letter-spacing:0.16em;text-transform:uppercase;color:${T.ink3};margin-top:8px;">Scan to verify</div>
+          </td>
+          <td valign="middle" style="padding-left:18px;">
+            <table role="presentation" align="center" cellpadding="0" cellspacing="0" style="height:29px;"><tr>${barTds}</tr></table>
+            <div style="font-family:${FONT_MONO};font-size:14px;font-weight:600;letter-spacing:0.25em;color:${T.ink};margin-top:6px;text-align:center;">${escapeHtml(referenceCode)}</div>
+            <div style="font-family:${FONT_MONO};font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:${T.ok};margin-top:6px;text-align:center;">Valid for check-in</div>
+          </td>
+        </tr>
+      </table>
     </div>`;
 }
 
@@ -234,7 +245,7 @@ function voucher({ booking, stayTitle, location, hostName, stayImage }) {
       </table>
 
       <div style="padding:0 28px 28px;">
-        ${barcode(booking.reference_code)}
+        ${qrBlock(booking.reference_code)}
       </div>
     </div>`;
 }
@@ -245,12 +256,16 @@ function shell({ banner, content, ctaLabel, ctaHref, whatsappHref, guestEmail })
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
 <body style="margin:0;padding:0;background:${T.paper};font-family:${FONT_BODY};color:${T.ink};">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${T.paper};">
-    <tr><td style="padding:14px 12px 0;" align="center">
-      <img src="cid:coastallogo" alt="Coastal Trails" width="72" height="72" style="display:block;border:0;">
-      <div style="height:3px;background:${T.glow};margin:14px 0 16px;border:0;"></div>
+    <tr><td style="padding:22px 16px 0;" align="center">
+      <img src="cid:coastallogo" alt="Coastal Trails" width="84" height="84" style="display:block;border:1px solid ${T.line};border-radius:20px;background:#fff;">
+      <div style="font-family:${FONT_MONO};font-size:10px;font-weight:600;letter-spacing:0.24em;text-transform:uppercase;color:${T.ink3};margin-top:10px;">Coastal Trails · Gokarna</div>
+      <div style="height:3px;background:${T.glow};margin:14px 0 0;border:0;"></div>
+    </td></tr>
+    <tr><td style="padding:6px 16px 0;" align="center">
+      <img src="cid:coastallogo" width="300" style="opacity:0.06;display:block;border:0;">
     </td></tr>
     <tr><td style="padding:0 12px 16px;" align="center">
-      <div style="width:100%;text-align:left;">
+      <div style="width:100%;text-align:left;margin-top:-170px;">
         ${banner || ''}
         ${content}
       </div>
@@ -271,12 +286,15 @@ function shell({ banner, content, ctaLabel, ctaHref, whatsappHref, guestEmail })
 </html>`;
 }
 
-async function send({ to, subject, html, label }) {
+async function send({ to, subject, html, label, qrText }) {
   const transporter = getTransporter();
   if (!transporter || !to) {
     console.log(`[mail] SMTP not configured — skipping ${label} (to: ${to})`);
     return { skipped: true };
   }
+  const qrBuffer = qrText
+    ? await QRCode.toBuffer(qrText, { width: 236, margin: 1, color: { dark: '#16222E', light: '#FFFFFF' } })
+    : null;
   await transporter.sendMail({
     from: `"Coastal Trails Bookings" <${process.env.SMTP_USER}>`,
     replyTo: process.env.MAIL_REPLY_TO || process.env.SMTP_USER,
@@ -294,6 +312,15 @@ async function send({ to, subject, html, label }) {
         path: path.join(ICON_DIR, `${name}.png`),
         cid: `icon-${name}`,
       })),
+      ...(qrBuffer
+        ? [
+            {
+              filename: 'qr.png',
+              content: qrBuffer,
+              cid: 'qrcode',
+            },
+          ]
+        : []),
     ],
   });
   console.log(`[mail] ${label} sent → ${to}`);
@@ -321,7 +348,7 @@ export async function sendPaymentSuccessEmail({ to, booking, stayTitle, location
     whatsappHref: whatsapp,
     guestEmail: to,
   });
-  return send({ to, subject: `Payment received · ${booking.reference_code} — ${stayTitle}`, html, label: `payment email for ${booking.reference_code}` });
+  return send({ to, subject: `Payment received · ${booking.reference_code} — ${stayTitle}`, html, label: `payment email for ${booking.reference_code}`, qrText: `${SITE_URL}/reservation/${booking.reference_code}` });
 }
 
 export async function sendHoldCreatedEmail({ to, booking, stayTitle, location, hostName, guestName, stayImage }) {
@@ -345,7 +372,7 @@ export async function sendHoldCreatedEmail({ to, booking, stayTitle, location, h
     ctaHref: `${SITE_URL}/bookings`,
     guestEmail: to,
   });
-  return send({ to, subject: `Hold created · ${booking.reference_code} — complete your payment`, html, label: `hold email for ${booking.reference_code}` });
+  return send({ to, subject: `Hold created · ${booking.reference_code} — complete your payment`, html, label: `hold email for ${booking.reference_code}`, qrText: `${SITE_URL}/reservation/${booking.reference_code}` });
 }
 
 export async function sendBookingStatusEmail({ to, booking, stayTitle, location, hostName, status, guestName, stayImage }) {
@@ -373,7 +400,7 @@ export async function sendBookingStatusEmail({ to, booking, stayTitle, location,
     ctaHref: status === 'confirmed' ? `${SITE_URL}/bookings` : SITE_URL,
     guestEmail: to,
   });
-  return send({ to, subject: `${m.label} · ${booking.reference_code}`, html, label: `status email (${status}) for ${booking.reference_code}` });
+  return send({ to, subject: `${m.label} · ${booking.reference_code}`, html, label: `status email (${status}) for ${booking.reference_code}`, qrText: `${SITE_URL}/reservation/${booking.reference_code}` });
 }
 
 export async function sendAdminNewBookingAlert({ to, booking, stayTitle, location, hostName, guestName, stayImage }) {
@@ -388,5 +415,5 @@ export async function sendAdminNewBookingAlert({ to, booking, stayTitle, locatio
     ctaLabel: 'Review bookings',
     ctaHref: `${SITE_URL}/bookings`,
   });
-  return send({ to, subject: `New booking · ${booking.reference_code} — ${guestName}`, html, label: `admin alert for ${booking.reference_code}` });
+  return send({ to, subject: `New booking · ${booking.reference_code} — ${guestName}`, html, label: `admin alert for ${booking.reference_code}`, qrText: `${SITE_URL}/reservation/${booking.reference_code}` });
 }

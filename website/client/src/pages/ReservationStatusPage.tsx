@@ -32,6 +32,7 @@ import { Tabs } from '../components/ui/Tabs';
 import { Dialog } from '../components/ui/Dialog';
 import { cn } from '../lib/cn';
 import { useLiveRefresh } from '../lib/live';
+import QRCode from 'qrcode';
 import { openRazorpayCheckout } from '../lib/razorpay';
 
 interface ReservationStatusPageProps {
@@ -119,6 +120,7 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
   const syncingRef = useRef(false);
   const [payResult, setPayResult] = useState<{ kind: 'success' | 'failed'; message?: string } | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState('');
 
   const fetchBookings = async (silent = false) => {
     if (!currentUser) {
@@ -176,6 +178,27 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
     fetchBookings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlRefCode, currentUser?.phone]);
+
+  useEffect(() => {
+    if (!selectedBooking) {
+      setQrDataUrl('');
+      return;
+    }
+    let alive = true;
+    QRCode.toDataURL(
+      `${window.location.origin}/reservation/${selectedBooking.reference_code}`,
+      { width: 236, margin: 1, color: { dark: '#16222E', light: '#FFFFFF' } },
+    )
+      .then((url) => {
+        if (alive) setQrDataUrl(url);
+      })
+      .catch(() => {
+        if (alive) setQrDataUrl('');
+      });
+    return () => {
+      alive = false;
+    };
+  }, [selectedBooking]);
 
   useLiveRefresh(() => fetchBookings(true), 15000);
 
@@ -656,18 +679,30 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
                   </div>
                 </div>
 
-                <div className="mt-6 flex flex-col items-center gap-2 border-t border-dashed border-line-2 pt-5">
-                  <div className="flex h-12 items-stretch gap-[2px]" aria-hidden="true">
-                    {Array.from({ length: 42 }).map((_, i) => (
-                      <span
-                        key={i}
-                        className="w-[2px] bg-ink"
-                        style={{ height: `${[55, 100, 80, 100, 65, 90, 100][i % 7]}%` }}
+                <div className="mt-6 flex items-center gap-5 border-t border-dashed border-line-2 pt-5">
+                  {qrDataUrl ? (
+                    <div className="flex shrink-0 flex-col items-center gap-1.5">
+                      <img
+                        src={qrDataUrl}
+                        alt="Booking QR code"
+                        className="h-28 w-28 rounded-lg border border-line bg-white p-1.5"
                       />
-                    ))}
+                      <span className="font-mono text-[9px] uppercase tracking-widest text-ink-3">Scan to verify</span>
+                    </div>
+                  ) : null}
+                  <div className="flex min-w-0 flex-1 flex-col items-center gap-2">
+                    <div className="flex h-12 items-stretch gap-[2px]" aria-hidden="true">
+                      {Array.from({ length: 42 }).map((_, i) => (
+                        <span
+                          key={i}
+                          className="w-[2px] bg-ink"
+                          style={{ height: `${[55, 100, 80, 100, 65, 90, 100][i % 7]}%` }}
+                        />
+                      ))}
+                    </div>
+                    <span className="font-mono-data text-sm font-semibold tracking-[0.25em] text-ink">{selectedBooking.reference_code}</span>
+                    <span className="font-mono text-[9px] uppercase tracking-widest text-ok">Valid for check-in</span>
                   </div>
-                  <span className="font-mono-data text-sm font-semibold tracking-[0.25em] text-ink">{selectedBooking.reference_code}</span>
-                  <span className="font-mono text-[9px] uppercase tracking-widest text-ok">Valid for check-in</span>
                 </div>
               </div>
             </div>
