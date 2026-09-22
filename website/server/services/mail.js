@@ -129,7 +129,7 @@ function receiptRows(booking, paymentState) {
                     </table>`;
 }
 
-function voucher({ booking, stay, paymentState, statusPill, cta }) {
+function voucher({ booking, stay, paymentState, statusPill, cta, guestName }) {
   const n = nights(booking);
   const roomLabel = booking.room_number ? `Room ${booking.room_number}` : 'Private Chalet';
   return `
@@ -147,6 +147,7 @@ function voucher({ booking, stay, paymentState, statusPill, cta }) {
                       <span style="background-color:#e4f2ee;color:#0f3d35;font-size:9px;font-weight:800;letter-spacing:0.8px;padding:3px 6px;border-radius:4px;text-transform:uppercase;">Digital Pass 2026</span>
                     </div>
                     <div style="font-family:'Courier New',monospace;font-size:15px;font-weight:800;color:#0f3d35;letter-spacing:0.5px;margin-top:3px;">${escapeHtml(booking.reference_code)}</div>
+                    ${guestName ? `<div style="font-size:10px;color:#697471;margin-top:2px;letter-spacing:0.2px;">Guest: ${escapeHtml(guestName)}</div>` : ''}
                   </td>
                   <td align="right" valign="middle">
                     ${statusPill}
@@ -400,7 +401,7 @@ export async function sendPaymentSuccessEmail({ to, booking, stayTitle, location
       : PILLS.awaiting();
   const html = emailShell({
     title: `Official Booking Voucher & Pass - ${stayTitle} | Coastal Trails`,
-    inner: voucher({ booking, stay, paymentState: 'paid', statusPill }),
+    inner: voucher({ booking, stay, paymentState: 'paid', statusPill, guestName }),
   });
   return send({ to, subject: `Payment received · ${booking.reference_code} — ${stayTitle}`, html, label: `payment email for ${booking.reference_code}`, qrText: qrTextFor(booking) });
 }
@@ -415,6 +416,7 @@ export async function sendPaymentFailedEmail({ to, booking, stayTitle, location,
       paymentState: 'failed',
       statusPill: PILLS.failed(),
       cta: { label: 'Retry payment', href: `${SITE_URL}/bookings` },
+      guestName,
     }),
   });
   return send({ to, subject: `Payment failed · ${booking.reference_code} — retry your 20% hold`, html, label: `payment failed email for ${booking.reference_code}`, qrText: qrTextFor(booking) });
@@ -430,6 +432,7 @@ export async function sendHoldCreatedEmail({ to, booking, stayTitle, location, h
       paymentState: 'pending',
       statusPill: PILLS.pending(),
       cta: { label: 'Pay 20% hold now', href: `${SITE_URL}/bookings` },
+      guestName,
     }),
   });
   return send({ to, subject: `Hold created · ${booking.reference_code} — complete your payment`, html, label: `hold email for ${booking.reference_code}`, qrText: qrTextFor(booking) });
@@ -446,7 +449,7 @@ export async function sendBookingStatusEmail({ to, booking, stayTitle, location,
   const paymentState = booking.payment_status === 'paid' ? 'paid' : booking.payment_status === 'refunded' ? 'refunded' : 'pending';
   const html = emailShell({
     title: `Booking Update - ${stayTitle} | Coastal Trails`,
-    inner: voucher({ booking, stay, paymentState, statusPill }),
+    inner: voucher({ booking, stay, paymentState, statusPill, guestName }),
   });
   return send({ to, subject: `Booking update · ${booking.reference_code} — ${status}`, html, label: `status email (${status}) for ${booking.reference_code}`, qrText: qrTextFor(booking) });
 }
@@ -456,7 +459,7 @@ export async function sendAdminNewBookingAlert({ to, booking, stayTitle, locatio
   const paymentState = booking.payment_status === 'paid' ? 'paid' : 'pending';
   const html = emailShell({
     title: `New Booking - ${booking.reference_code} | Coastal Trails`,
-    inner: voucher({ booking, stay, paymentState, statusPill: PILLS.newrequest() }),
+    inner: voucher({ booking, stay, paymentState, statusPill: PILLS.newrequest(), guestName }),
   });
   return send({ to, subject: `New booking · ${booking.reference_code} — ${guestName}`, html, label: `admin alert for ${booking.reference_code}`, qrText: qrTextFor(booking) });
 }
