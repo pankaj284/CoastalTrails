@@ -1,30 +1,21 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle,
   Bike,
   Bus,
-  Camera,
+  ChevronLeft,
   ChevronRight,
   Clock,
-  Compass,
   Download,
   IndianRupee,
   Info,
-  LocateFixed,
-  Maximize,
   Mountain,
-  Navigation,
   Phone,
   Route,
-  Share2,
   ShieldCheck,
   Ship,
-  Sunset,
   TrendingUp,
   User,
-  Waves,
 } from 'lucide-react';
-import { CoastalMapView } from '../components/CoastalMapView';
 import { cn } from '../lib/cn';
 
 type Segment = 'trek' | 'ferry' | 'road';
@@ -178,6 +169,15 @@ const WAYPOINTS: Waypoint[] = [
 
 const ELEVATION = [6, 12, 22, 34, 42, 48, 44, 31, 22, 12, 6, 4, 8, 6];
 
+const WAYPOINT_IMAGES: Record<string, string> = {
+  kudle: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1400&q=80',
+  steps: 'https://images.unsplash.com/photo-1551632811-561732d1e306?auto=format&fit=crop&w=1400&q=80',
+  headland: 'https://images.unsplash.com/photo-1506929562872-bb421503ef21?auto=format&fit=crop&w=1400&q=80',
+  sunset: 'https://images.unsplash.com/photo-1494548162494-384bba4ab999?auto=format&fit=crop&w=1400&q=80',
+  om: 'https://images.unsplash.com/photo-1519046904884-53103b34b206?auto=format&fit=crop&w=1400&q=80',
+  halfmoon: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1400&q=80',
+};
+
 function ElevationProfile() {
   const w = 620;
   const h = 110;
@@ -229,13 +229,19 @@ export const RouteNavigatorPage: React.FC = () => {
   const [segment, setSegment] = useState<Segment>('trek');
   const [selected, setSelected] = useState<TransportOption>(TRANSPORT_OPTIONS[0]);
   const [gpxOn, setGpxOn] = useState(false);
-  const [layer, setLayer] = useState<'Satellite' | 'Hybrid' | 'Topo 3D'>('Satellite');
   const [showDriverModal, setShowDriverModal] = useState(false);
-  const [hoverPin, setHoverPin] = useState<Waypoint | null>(null);
+  const [activeSlide, setActiveSlide] = useState(0);
 
   const options = useMemo(() => TRANSPORT_OPTIONS.filter((o) => o.segment.includes(segment)), [segment]);
 
   const activeOption = options.some((o) => o.id === selected.id) ? selected : options[0];
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setActiveSlide((i) => (i + 1) % WAYPOINTS.length);
+    }, 6000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="w-full max-w-full">
@@ -382,96 +388,76 @@ export const RouteNavigatorPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Right: map canvas */}
-        <div className="relative overflow-hidden rounded-2xl border border-[#E2E8F0] shadow-sm">
-          <CoastalMapView
-            showTrailOverlay
-            initialTrackingMode={segment === 'ferry' ? 'ferry' : 'trekker'}
-            enablePinDrop={false}
-            height="calc(100vh - 180px)"
-          />
+        {/* Right: media carousel + trail intelligence (no map) */}
+        <div className="flex flex-col gap-4">
+          <div className="relative overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-sm">
+            <div className="relative h-72 sm:h-96">
+              <img
+                src={WAYPOINT_IMAGES[WAYPOINTS[activeSlide].id]}
+                alt={WAYPOINTS[activeSlide].name}
+                className="h-full w-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
 
-          {/* Layer switcher */}
-          <div className="absolute left-3 top-3 flex items-center gap-0.5 rounded-full border border-[#E2E8F0] bg-white/95 p-0.5 shadow-md backdrop-blur">
-            {(['Satellite', 'Hybrid', 'Topo 3D'] as const).map((l) => (
-              <button
-                key={l}
-                type="button"
-                onClick={() => setLayer(l)}
-                className={cn(
-                  'rounded-full px-2.5 py-1 text-[10px] font-bold transition-all',
-                  layer === l ? 'bg-[#0D9488] text-white' : 'text-slate-600 hover:text-[#0F172A]',
-                )}
-              >
-                {l}
-              </button>
-            ))}
-          </div>
-
-          {/* Map controls */}
-          <div className="absolute right-3 top-3 flex flex-col gap-1.5">
-            {[
-              { icon: LocateFixed, label: 'Recenter GPS' },
-              { icon: Compass, label: 'Compass orientation' },
-              { icon: Maximize, label: 'Fullscreen' },
-              { icon: Share2, label: 'Share trail' },
-            ].map((c) => (
-              <button
-                key={c.label}
-                type="button"
-                aria-label={c.label}
-                title={c.label}
-                className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#E2E8F0] bg-white/95 text-slate-600 shadow-sm backdrop-blur transition-colors hover:text-[#0D9488] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D9488]"
-              >
-                <c.icon className="h-4 w-4" />
-              </button>
-            ))}
-          </div>
-
-          {/* POI pins */}
-          {WAYPOINTS.map((w) => (
-            <div key={w.id} className="absolute" style={{ left: `${w.x}%`, top: `${w.y}%` }}>
-              <button
-                type="button"
-                onMouseEnter={() => setHoverPin(w)}
-                onMouseLeave={() => setHoverPin((p) => (p?.id === w.id ? null : p))}
-                onClick={() => setHoverPin((p) => (p?.id === w.id ? null : w))}
-                className={cn(
-                  'group relative flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white shadow-md transition-transform hover:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D9488]',
-                  w.type === 'headland' || w.type === 'steps' ? 'bg-rose-500' : w.type === 'viewpoint' ? 'bg-[#F59E0B]' : 'bg-[#0D9488]',
-                )}
-              >
-                {w.type === 'headland' || w.type === 'steps' ? (
-                  <AlertTriangle className="h-3.5 w-3.5 text-white" />
-                ) : w.type === 'viewpoint' ? (
-                  <Camera className="h-3.5 w-3.5 text-white" />
-                ) : w.type === 'end' ? (
-                  <Sunset className="h-3.5 w-3.5 text-white" />
-                ) : (
-                  <Waves className="h-3.5 w-3.5 text-white" />
-                )}
-              </button>
-
-              {hoverPin?.id === w.id && (
-                <div className="absolute bottom-7 left-1/2 z-10 w-52 -translate-x-1/2 rounded-xl border border-[#E2E8F0] bg-white p-3 shadow-lg">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-[#0F172A]">{w.name}</span>
-                    <span className={cn('flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold text-white', CROWD_STYLE[w.crowd])}>
-                      {w.crowd}
-                    </span>
+              <div className="absolute bottom-4 left-4 right-16 flex items-end justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-white/80">
+                    Waypoint {activeSlide + 1} of {WAYPOINTS.length}
                   </div>
-                  <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">{w.note}</p>
-                  <div className="mt-1.5 flex items-center justify-between font-mono text-[10px] font-semibold text-slate-400">
-                    <span>{w.km.toFixed(1)} km</span>
-                    <span>{w.elevation} m</span>
+                  <div className="mt-0.5 truncate font-sans text-lg font-bold text-white">
+                    {WAYPOINTS[activeSlide].name}
+                  </div>
+                  <div className="mt-1 flex items-center gap-2 font-mono text-[10px] font-semibold text-white/85">
+                    <span>{WAYPOINTS[activeSlide].km.toFixed(1)} km</span>
+                    <span>·</span>
+                    <span>{WAYPOINTS[activeSlide].elevation} m</span>
                   </div>
                 </div>
-              )}
-            </div>
-          ))}
+                <span
+                  className={cn(
+                    'shrink-0 rounded-full px-2.5 py-1 text-[9px] font-bold text-white',
+                    CROWD_STYLE[WAYPOINTS[activeSlide].crowd],
+                  )}
+                >
+                  {WAYPOINTS[activeSlide].crowd}
+                </span>
+              </div>
 
-          {/* Bottom overlay: elevation + route timeline */}
-          <div className="absolute inset-x-3 bottom-3 rounded-2xl border border-[#E2E8F0] bg-white/95 p-3.5 shadow-lg backdrop-blur">
+              <button
+                type="button"
+                aria-label="Previous waypoint"
+                onClick={() => setActiveSlide((i) => (i - 1 + WAYPOINTS.length) % WAYPOINTS.length)}
+                className="absolute left-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur transition-colors hover:bg-white/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                aria-label="Next waypoint"
+                onClick={() => setActiveSlide((i) => (i + 1) % WAYPOINTS.length)}
+                className="absolute right-3 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-white/20 text-white backdrop-blur transition-colors hover:bg-white/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+
+              <div className="absolute bottom-3 right-4 flex items-center gap-1">
+                {WAYPOINTS.map((w, i) => (
+                  <button
+                    key={w.id}
+                    type="button"
+                    aria-label={w.name}
+                    onClick={() => setActiveSlide(i)}
+                    className={cn(
+                      'h-1.5 rounded-full transition-all',
+                      i === activeSlide ? 'w-5 bg-white' : 'w-1.5 bg-white/50 hover:bg-white/80',
+                    )}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-[#E2E8F0] bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                 <TrendingUp className="h-3 w-3 text-[#0D9488]" />
@@ -479,30 +465,38 @@ export const RouteNavigatorPage: React.FC = () => {
               </span>
               <span className="font-mono text-[10px] font-semibold text-slate-400">+42 m total</span>
             </div>
-            <div className="mt-1 h-16 w-full">
+            <div className="mt-2 h-24 w-full">
               <ElevationProfile />
             </div>
 
-            <div className="mt-2.5 flex items-center gap-1.5 overflow-x-auto pb-1">
+            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
               {WAYPOINTS.map((w, i) => (
-                <div key={w.id} className="flex shrink-0 items-center gap-1.5">
-                  <button
-                    type="button"
-                    onMouseEnter={() => setHoverPin(w)}
-                    onMouseLeave={() => setHoverPin(null)}
-                    className="group flex items-center gap-2 rounded-full border border-[#E2E8F0] bg-slate-50 py-1.5 pl-1.5 pr-3 transition-all hover:border-[#0D9488] hover:bg-[#0D9488]/5"
-                  >
-                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#0F172A] font-mono text-[9px] font-bold text-white">
-                      {i + 1}
+                <button
+                  key={w.id}
+                  type="button"
+                  onClick={() => setActiveSlide(i)}
+                  className={cn(
+                    'rounded-xl border p-3 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0D9488]',
+                    activeSlide === i
+                      ? 'border-[#0D9488] bg-[#0D9488]/5 shadow-sm'
+                      : 'border-[#E2E8F0] bg-slate-50/50 hover:border-[#0D9488]/40 hover:bg-white',
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-2">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#0F172A] font-mono text-[9px] font-bold text-white">
+                        {i + 1}
+                      </span>
+                      <span className="text-[11px] font-bold text-[#0F172A]">{w.name}</span>
                     </span>
-                    <span className="text-[10px] font-bold text-[#0F172A]">{w.name}</span>
-                    <span className="flex items-center gap-0.5">
-                      <span className={cn('h-1.5 w-1.5 rounded-full', CROWD_STYLE[w.crowd])} />
-                      <span className="font-mono text-[9px] font-semibold text-slate-400">{w.elevation}m</span>
-                    </span>
-                  </button>
-                  {i < WAYPOINTS.length - 1 && <ChevronRight className="h-3 w-3 shrink-0 text-slate-300" />}
-                </div>
+                    <span className={cn('h-2 w-2 rounded-full', CROWD_STYLE[w.crowd])} title={w.crowd} />
+                  </div>
+                  <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">{w.note}</p>
+                  <div className="mt-1.5 flex items-center justify-between font-mono text-[10px] font-semibold text-slate-400">
+                    <span>{w.km.toFixed(1)} km</span>
+                    <span>{w.elevation} m</span>
+                  </div>
+                </button>
               ))}
             </div>
           </div>
