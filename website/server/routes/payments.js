@@ -2,6 +2,7 @@ import express from 'express';
 import crypto from 'crypto';
 import { all, get, run } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
+import { guestWhatsAppLink, hostWhatsAppLink, bookingWhatsAppText, sendWhatsApp, whatsAppProviderConfigured } from '../utils/whatsapp.js';
 
 const router = express.Router();
 
@@ -88,9 +89,28 @@ router.post('/:bookingId/confirm', requireAuth, async (req, res) => {
     );
 
     const updated = await get('SELECT * FROM bookings WHERE id = ?', [booking.id]);
+    const stay = await get('SELECT title, location_display, host_name, host_whatsapp FROM homestays WHERE id = ?', [booking.homestay_id]);
+
+    // Booking is paid and sent to the host — deliver the details to the guest's WhatsApp.
+    const message = bookingWhatsAppText(updated, stay);
+    let whatsapp = { sent: false, reason: 'provider not configured' };
+    if (whatsAppProviderConfigured()) {
+      whatsapp = await sendWhatsApp(updated.user_phone, message);
+      console.log(
+        whatsapp.sent
+          ? `WhatsApp booking details sent to ${updated.user_phone}`
+          : `WhatsApp send failed for ${updated.user_phone}: ${whatsapp.reason}`
+      );
+    }
+
+    const guestLink = guestWhatsAppLink(updated, stay);
+    const hostLink = hostWhatsAppLink(updated, stay);
+
     res.json({
-      booking: updated,
+      booking: { ...updated, guest_whatsapp_link: guestLink, whatsapp_link: hostLink },
       payment: { ...payment, status: 'paid', provider_ref: providerRef },
+      whatsapp,
+      guest_whatsapp_link: guestLink,
     });
   } catch (err) {
     res.status(500).json({ error: 'Could not verify the payment. Please try again.' });

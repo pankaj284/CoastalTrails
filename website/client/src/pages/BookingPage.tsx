@@ -280,6 +280,19 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
     }
   }
 
+  // Attempt to open WhatsApp with the full booking details right after confirmation.
+  // Browsers may block the popup — the explicit button on the success screen always works.
+  useEffect(() => {
+    if (confirmed?.guest_whatsapp_link) {
+      try {
+        window.open(confirmed.guest_whatsapp_link, '_blank', 'noopener');
+      } catch {
+        /* popup blocked */
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confirmed?.id]);
+
   if (loading) {
     return (
       <div className="mx-auto w-full max-w-5xl space-y-6">
@@ -386,20 +399,35 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
               ))}
             </div>
 
-            <div className="flex flex-col justify-center gap-3 sm:flex-row">
+            <div className="flex flex-col justify-center gap-3 sm:flex-row sm:flex-wrap">
+              {confirmed.guest_whatsapp_link ? (
+                <a
+                  href={confirmed.guest_whatsapp_link}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-ok px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-ok/90"
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  Send details to my WhatsApp
+                </a>
+              ) : null}
               <Button onClick={() => navigate(`/reservation/${confirmed.reference_code}`)}>View reservation</Button>
               {confirmed.whatsapp_link ? (
                 <a
                   href={confirmed.whatsapp_link}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-ok px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-ok/90"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-line-2 bg-elevated px-5 py-2.5 text-sm font-medium text-ink-2 transition-colors hover:border-tide hover:text-tide"
                 >
                   <MessageCircle className="h-4 w-4" />
-                  Coordinate arrival
+                  Message the host
                 </a>
               ) : null}
             </div>
+            <p className="text-[11px] text-ink-3">
+              Your WhatsApp opens with the full booking details pre-filled — reference, stay, host, dates, room, amounts and
+              balance. Just press send.
+            </p>
           </motion.div>
         ) : pendingBooking ? (
           <motion.div
