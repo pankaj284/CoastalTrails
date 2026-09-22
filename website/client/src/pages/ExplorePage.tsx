@@ -38,7 +38,7 @@ export const ExplorePage: React.FC<ExplorePageProps> = ({
   const [checkOut, setCheckOut] = useState('');
   const [viewMode, setViewMode] = useState<'auto' | 'grid' | 'list'>('auto');
   const [sortBy, setSortBy] = useState<'recommended' | 'rating' | 'price_asc' | 'price_desc' | 'beach'>('recommended');
-  const [selectedBeach, setSelectedBeach] = useState<string>('all');
+  const [selectedBeach] = useState<string>('all');
   const [selectedPriceRange, setSelectedPriceRange] = useState<'all' | 'budget' | 'mid' | 'luxury'>('all');
   const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
   const [quickFilterSearch, setQuickFilterSearch] = useState('');
@@ -127,7 +127,6 @@ export const ExplorePage: React.FC<ExplorePageProps> = ({
   };
 
   const clearAllFilters = () => {
-    setSelectedBeach('all');
     setSelectedPriceRange('all');
     setSelectedAmenities([]);
     setQuickFilterSearch('');
@@ -384,32 +383,6 @@ export const ExplorePage: React.FC<ExplorePageProps> = ({
 
             {/* Beach filters + Filters button on the same line */}
             <div className="flex w-full items-center gap-2 md:w-auto">
-              <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-1 scrollbar-none md:flex-none">
-                {[
-                  { id: 'all', label: 'All Gokarna' },
-                  { id: 'kudle', label: 'Kudle Beach' },
-                  { id: 'om', label: 'Om Beach' },
-                  { id: 'halfMoon', label: 'Half Moon' },
-                  { id: 'paradise', label: 'Paradise Beach' },
-                  { id: 'mainBeach', label: 'Main Beach / Town' },
-                ].map((b) => {
-                  const isSelected = selectedBeach === b.id;
-                  return (
-                    <button
-                      key={b.id}
-                      type="button"
-                      onClick={() => setSelectedBeach(b.id)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all cursor-pointer border ${
-                        isSelected
-                          ? 'bg-tide text-white border-tide shadow-xs font-bold'
-                          : 'bg-elevated text-ink-2 border-line-2 hover:border-tide hover:text-ink'
-                      }`}
-                    >
-                      {b.label}
-                    </button>
-                  );
-                })}
-              </div>
               <div className="relative shrink-0" ref={filterRef}>
                 <button
                   type="button"
@@ -565,7 +538,7 @@ export const ExplorePage: React.FC<ExplorePageProps> = ({
         ) : sortedStays.length === 0 ? (
           <div className="bg-white rounded-3xl p-16 text-center border border-slate-200 shadow-xs space-y-3">
             <h3 className="font-serif text-xl font-bold text-slate-900">No sanctuaries match your criteria</h3>
-            <p className="text-xs text-slate-500">Try clearing your filters or selecting "All Gokarna".</p>
+            <p className="text-xs text-slate-500">Try clearing your filters.</p>
             <button
               onClick={clearAllFilters}
               className="mt-2 text-xs font-bold text-sky-600 underline hover:text-sky-700 cursor-pointer"
