@@ -321,7 +321,9 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
             setPendingBooking(null);
             setConfirmed(synced.booking);
           } else {
-            setPaymentError('Payment window closed — your booking is held, you can pay later from My Bookings.');
+            await api.failPayment(pendingBooking.id).catch(() => {});
+            setPayResult('failed');
+            setPaymentError('Payment window closed before completing. Nothing was charged — retry or pay later from My Bookings.');
           }
         },
       });

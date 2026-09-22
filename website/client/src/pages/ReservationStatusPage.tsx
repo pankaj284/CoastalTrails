@@ -243,7 +243,11 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
             await refreshBooking(selectedBooking.id);
             setPayResult({ kind: 'success' });
           } else {
-            setNotice('Payment window closed — you can pay anytime from this page.');
+            await api.failPayment(selectedBooking.id).catch(() => {});
+            setPayResult({
+              kind: 'failed',
+              message: 'Payment window closed before completing. Nothing was charged — retry when ready.',
+            });
           }
         },
       });
