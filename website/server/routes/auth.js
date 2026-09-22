@@ -2,6 +2,7 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import { get, run } from '../db/index.js';
 import { requireAuth, startSession, endSession } from '../middleware/auth.js';
+import { sendSignupWhatsApp } from '../utils/whatsapp.js';
 
 const router = express.Router();
 
@@ -107,7 +108,15 @@ router.post('/register', async (req, res) => {
 
     const created = await get('SELECT * FROM users WHERE id = ?', [id]);
     const token = await startSession(created.id);
-    return res.status(201).json({ ...sanitizeUser(created), token });
+
+    const whatsapp = await sendSignupWhatsApp(created);
+    console.log(
+      whatsapp.sent
+        ? `WhatsApp welcome sent to ${created.phone} (${whatsapp.provider})`
+        : `WhatsApp welcome send failed for ${created.phone}: ${whatsapp.reason}`
+    );
+
+    return res.status(201).json({ ...sanitizeUser(created), token, whatsapp_notification: whatsapp });
   } catch (err) {
     console.error('Register error:', err.message);
     return res.status(500).json({ error: 'Could not create your account right now. Please try again.' });

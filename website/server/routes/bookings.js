@@ -2,7 +2,7 @@ import express from 'express';
 import { all, get, run } from '../db/index.js';
 import { expireStaleHolds, getRoomsLeftMap, eachNight, localTodayISO, localDateTime, pickRoomForStay } from '../db/availability.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
-import { guestWhatsAppLink, hostWhatsAppLink, bookingWhatsAppText, sendWhatsApp, whatsAppProviderConfigured } from '../utils/whatsapp.js';
+import { guestWhatsAppLink, hostWhatsAppLink, bookingWhatsAppText, sendWhatsApp, whatsAppProviderConfigured, sendBookingWhatsApp } from '../utils/whatsapp.js';
 
 const router = express.Router();
 
@@ -179,6 +179,15 @@ router.post('/', requireAuth, async (req, res) => {
     // Availability is computed live from active bookings, so no static date rows are written.
 
     const created = await get('SELECT * FROM bookings WHERE id = ?', [id]);
+
+    // Automatic guest notification — the server sends it itself, no clicks needed.
+    const whatsapp = await sendBookingWhatsApp(created, homestay);
+    console.log(
+      whatsapp.sent
+        ? `WhatsApp booking confirmation sent to ${created.user_phone} (${whatsapp.provider})`
+        : `WhatsApp send failed for ${created.user_phone}: ${whatsapp.reason}`
+    );
+
     res.status(201).json({
       ...created,
       nights,
@@ -187,6 +196,7 @@ router.post('/', requireAuth, async (req, res) => {
       host_whatsapp: homestay.host_whatsapp,
       whatsapp_link: hostWhatsAppLink(created, homestay),
       guest_whatsapp_link: guestWhatsAppLink(created, homestay),
+      whatsapp_notification: whatsapp,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
