@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   Search,
   Clock,
@@ -28,7 +30,11 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { Skeleton } from '../components/ui/Skeleton';
 import { Reveal } from '../components/ui/Reveal';
 import { Tabs } from '../components/ui/Tabs';
+import { Dialog } from '../components/ui/Dialog';
 import { cn } from '../lib/cn';
+import { useLiveRefresh } from '../lib/live';
+import QRCode from 'qrcode';
+import { openRazorpayCheckout } from '../lib/razorpay';
 
 interface ReservationStatusPageProps {
   currentUser: User | null;
@@ -112,15 +118,19 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
   const [cancelling, setCancelling] = useState(false);
   const [payMethod, setPayMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
   const [payingHold, setPayingHold] = useState(false);
+  const syncingRef = useRef(false);
+  const [payResult, setPayResult] = useState<{ kind: 'success' | 'failed'; message?: string } | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState('');
 
-  const fetchBookings = async () => {
+  const fetchBookings = async (silent = false) => {
     if (!currentUser) {
       setAllBookings([]);
       setMatchingBookings([]);
       return;
     }
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const data = await api.getBookings();
       setAllBookings(data);
       if (searchQuery.trim()) {
@@ -132,10 +142,36 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
           if (match) setSelectedBooking(match);
         }
       }
+      setSelectedBooking((prev) => {
+        if (!prev) return prev;
+        const fresh = data.find((b) => b.id === prev.id);
+        return fresh ?? prev;
+      });
+
+      // Auto-reconcile bookings whose payment may have completed while the
+      // checkout handler was interrupted (network drop, closed tab, etc.)
+      if (silent && !syncingRef.current) {
+        const stuck = data.filter(
+          (b) => b.payment_status === 'pending' && (b.status === 'pending_payment' || b.status === 'awaiting_host'),
+        );
+        if (stuck.length > 0) {
+          syncingRef.current = true;
+          Promise.all(stuck.slice(0, 3).map((b) => api.syncPayment(b.id).catch(() => null)))
+            .then((results) => {
+              if (results.some((r) => r && r.synced !== 'pending')) {
+                return fetchBookings(true);
+              }
+              return undefined;
+            })
+            .finally(() => {
+              syncingRef.current = false;
+            });
+        }
+      }
     } catch (err) {
       console.error('Failed to load bookings', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -143,6 +179,29 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
     fetchBookings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlRefCode, currentUser?.phone]);
+
+  useEffect(() => {
+    if (!selectedBooking) {
+      setQrDataUrl('');
+      return;
+    }
+    let alive = true;
+    QRCode.toDataURL(
+      `${window.location.origin}/reservation/${selectedBooking.reference_code}`,
+      { width: 236, margin: 1, color: { dark: '#16222E', light: '#FFFFFF' } },
+    )
+      .then((url) => {
+        if (alive) setQrDataUrl(url);
+      })
+      .catch(() => {
+        if (alive) setQrDataUrl('');
+      });
+    return () => {
+      alive = false;
+    };
+  }, [selectedBooking]);
+
+  useLiveRefresh(() => fetchBookings(true), 15000);
 
   // Status notices dismiss themselves after a few seconds
   useEffect(() => {
@@ -162,7 +221,11 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
 
   const handleCancelBooking = async () => {
     if (!selectedBooking) return;
-    if (!window.confirm('Cancel this booking? Any paid hold is refunded to the original payment method.')) return;
+    setConfirmCancel(true);
+  };
+
+  const doCancelBooking = async () => {
+    if (!selectedBooking) return;
     setCancelling(true);
     try {
       await api.cancelBooking(selectedBooking.id);
@@ -172,6 +235,7 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
       setNotice(err instanceof Error ? err.message : 'Could not cancel the booking.');
     } finally {
       setCancelling(false);
+      setConfirmCancel(false);
     }
   };
 
@@ -179,10 +243,45 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
     if (!selectedBooking) return;
     setPayingHold(true);
     try {
-      await api.initiatePayment(selectedBooking.id, payMethod);
-      await api.confirmPayment(selectedBooking.id);
-      await refreshBooking(selectedBooking.id);
-      setNotice('Payment received — your booking has been sent to the host.');
+      const init = await api.initiatePayment(selectedBooking.id, payMethod);
+      await openRazorpayCheckout({
+        key: init.key_id,
+        orderId: init.order_id,
+        amountPaise: init.amount_paise,
+        method: payMethod as 'upi' | 'card' | 'netbanking',
+        description: `20% hold · ${init.booking_reference}`,
+        prefill: { name: init.customer.name, contact: init.customer.phone },
+        onSuccess: async (r) => {
+          try {
+            await api.confirmPayment(selectedBooking.id, {
+              razorpay_order_id: init.order_id,
+              razorpay_payment_id: r.razorpay_payment_id,
+              razorpay_signature: r.razorpay_signature,
+            });
+          } catch {
+            await api.syncPayment(selectedBooking.id).catch(() => {});
+          }
+          await refreshBooking(selectedBooking.id);
+          setPayResult({ kind: 'success' });
+        },
+        onFail: async (message) => {
+          await api.failPayment(selectedBooking.id).catch(() => {});
+          setPayResult({ kind: 'failed', message });
+        },
+        onCancel: async () => {
+          const synced = await api.syncPayment(selectedBooking.id).catch(() => null);
+          if (synced && synced.booking.payment_status === 'paid') {
+            await refreshBooking(selectedBooking.id);
+            setPayResult({ kind: 'success' });
+          } else {
+            await api.failPayment(selectedBooking.id).catch(() => {});
+            setPayResult({
+              kind: 'failed',
+              message: 'Payment window closed before completing. Nothing was charged — retry when ready.',
+            });
+          }
+        },
+      });
     } catch (err) {
       setNotice(err instanceof Error ? err.message : 'Could not complete the payment.');
     } finally {
@@ -269,6 +368,34 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
   const holdsPaid = matchingBookings.reduce((sum, b) => sum + (b.advance_paid || 0), 0);
 
   const countdown = useCountdown(selectedBooking?.hold_expires_at);
+
+  const cancelDialog = (
+    <Dialog open={confirmCancel} onClose={() => setConfirmCancel(false)} title="Cancel this booking?">
+      <div className="space-y-4">
+        <div className="flex items-start gap-3 rounded-xl border border-warn/40 bg-warn/10 p-3">
+          <XCircle className="h-5 w-5 shrink-0 text-warn" />
+          <p className="text-sm leading-relaxed text-ink-2">
+            {selectedBooking?.payment_status === 'paid' ? (
+              <>
+                Your paid hold of <span className="font-semibold text-ink">₹{selectedBooking.advance_paid}</span> will be
+                refunded to the original payment method. This cannot be undone.
+              </>
+            ) : (
+              <>This booking will be cancelled immediately. This cannot be undone.</>
+            )}
+          </p>
+        </div>
+        <div className="flex gap-2.5">
+          <Button variant="secondary" className="flex-1" onClick={() => setConfirmCancel(false)} disabled={cancelling}>
+            No, keep booking
+          </Button>
+          <Button className="flex-1 gap-1.5 bg-err hover:bg-err/90" onClick={doCancelBooking} disabled={cancelling}>
+            {cancelling ? 'Cancelling…' : 'Yes, cancel it'}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  );
 
   if (selectedBooking) {
     const isConfirmed = ['confirmed', 'checked_in', 'completed'].includes(selectedBooking.status);
@@ -564,18 +691,30 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
                   </div>
                 </div>
 
-                <div className="mt-6 flex flex-col items-center gap-2 border-t border-dashed border-line-2 pt-5">
-                  <div className="flex h-12 items-stretch gap-[2px]" aria-hidden="true">
-                    {Array.from({ length: 42 }).map((_, i) => (
-                      <span
-                        key={i}
-                        className="w-[2px] bg-ink"
-                        style={{ height: `${[55, 100, 80, 100, 65, 90, 100][i % 7]}%` }}
+                <div className="mt-6 flex flex-col items-center gap-4 border-t border-dashed border-line-2 pt-5">
+                  {qrDataUrl ? (
+                    <div className="flex flex-col items-center gap-1.5">
+                      <img
+                        src={qrDataUrl}
+                        alt="Booking QR code"
+                        className="h-24 w-24 rounded-lg border border-line bg-white p-1.5"
                       />
-                    ))}
+                      <span className="font-mono text-[9px] uppercase tracking-widest text-ink-3">Scan to verify</span>
+                    </div>
+                  ) : null}
+                  <div className="flex w-full flex-col items-center gap-2">
+                    <div className="flex h-12 items-stretch gap-[2px]" aria-hidden="true">
+                      {Array.from({ length: 42 }).map((_, i) => (
+                        <span
+                          key={i}
+                          className="w-[2px] bg-ink"
+                          style={{ height: `${[55, 100, 80, 100, 65, 90, 100][i % 7]}%` }}
+                        />
+                      ))}
+                    </div>
+                    <span className="font-mono-data text-sm font-semibold tracking-[0.25em] text-ink">{selectedBooking.reference_code}</span>
+                    <span className="font-mono text-[9px] uppercase tracking-widest text-ok">Valid for check-in</span>
                   </div>
-                  <span className="font-mono-data text-sm font-semibold tracking-[0.25em] text-ink">{selectedBooking.reference_code}</span>
-                  <span className="font-mono text-[9px] uppercase tracking-widest text-ok">Valid for check-in</span>
                 </div>
               </div>
             </div>
@@ -592,6 +731,7 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
             Back to all bookings
           </button>
         </div>
+        {cancelDialog}
       </div>
     );
   }
@@ -755,6 +895,155 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
           ))}
         </div>
       )}
+
+      {createPortal(
+        <AnimatePresence>
+          {payResult && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4 backdrop-blur-sm"
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.94, y: 12 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.96, y: 8 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 26 }}
+                className="w-full max-w-md rounded-3xl border border-line bg-elevated p-8 text-center shadow-2xl"
+              >
+                {payResult.kind === 'success' ? (
+                  <motion.svg viewBox="0 0 52 52" className="mx-auto h-20 w-20">
+                    <motion.circle
+                      cx="26"
+                      cy="26"
+                      r="24"
+                      fill="none"
+                      stroke="var(--c-ok)"
+                      strokeWidth="2"
+                      initial={{ pathLength: 0 }}
+                      animate={{ pathLength: 1 }}
+                      transition={{ duration: 0.6, ease: 'easeOut' }}
+                    />
+                    <motion.path
+                      d="M14 27 L22 35 L38 17"
+                      fill="none"
+                      stroke="var(--c-ok)"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      initial={{ pathLength: 0 }}
+                      animate={{ pathLength: 1 }}
+                      transition={{ duration: 0.4, delay: 0.55, ease: 'easeOut' }}
+                    />
+                  </motion.svg>
+                ) : (
+                  <motion.svg viewBox="0 0 52 52" className="mx-auto h-20 w-20">
+                    <motion.circle
+                      cx="26"
+                      cy="26"
+                      r="24"
+                      fill="none"
+                      stroke="var(--c-err)"
+                      strokeWidth="2"
+                      initial={{ pathLength: 0 }}
+                      animate={{ pathLength: 1 }}
+                      transition={{ duration: 0.6, ease: 'easeOut' }}
+                    />
+                    <motion.path
+                      d="M18 18 L34 34 M34 18 L18 34"
+                      fill="none"
+                      stroke="var(--c-err)"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      initial={{ pathLength: 0 }}
+                      animate={{ pathLength: 1 }}
+                      transition={{ duration: 0.4, delay: 0.55, ease: 'easeOut' }}
+                    />
+                  </motion.svg>
+                )}
+
+                <p className={cn('overline mt-6', payResult.kind === 'failed' && '!text-err')}>
+                  {payResult.kind === 'success' ? 'Payment successful' : 'Payment failed'}
+                </p>
+                <h2 className="mt-2 font-display text-2xl font-semibold tracking-tight text-ink">
+                  {payResult.kind === 'success'
+                    ? 'Your stay is booked'
+                    : "We couldn't complete your payment"}
+                </h2>
+                <p className="mt-2 text-sm text-ink-2">
+                  {payResult.kind === 'success'
+                    ? 'The 20% hold is paid — your booking has been sent to the host for confirmation.'
+                    : payResult.message || 'Your payment was declined. Nothing was charged — your dates are still held.'}
+                </p>
+
+                <div className="mt-4 flex items-end justify-center gap-0.5" aria-hidden="true">
+                  {[8, 14, 20, 26, 20, 14, 8].map((h, i) => (
+                    <motion.span
+                      key={i}
+                      initial={{ height: 4, opacity: 0 }}
+                      animate={{ height: h, opacity: 1 }}
+                      transition={{ delay: 0.5 + i * 0.06, type: 'spring', stiffness: 300, damping: 18 }}
+                      className={cn('w-1 rounded-full', payResult.kind === 'success' ? 'bg-tide-glow' : 'bg-err/50')}
+                    />
+                  ))}
+                </div>
+
+                <div className="mt-6 flex flex-col justify-center gap-2.5 sm:flex-row">
+                  {payResult.kind === 'success' ? (
+                    <Button className="flex-1" onClick={() => setPayResult(null)}>
+                      View my booking
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        className="flex-1"
+                        disabled={payingHold}
+                        onClick={() => {
+                          setPayResult(null);
+                          void handleCompletePayment();
+                        }}
+                      >
+                        {payingHold ? 'Retrying…' : 'Retry payment'}
+                      </Button>
+                      <Button variant="secondary" className="flex-1" onClick={() => setPayResult(null)}>
+                        Pay later
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body,
+      )}
+
+      <Dialog open={confirmCancel} onClose={() => setConfirmCancel(false)} title="Cancel this booking?">
+        <div className="space-y-4">          <div className="flex items-start gap-3 rounded-xl border border-warn/40 bg-warn/10 p-3">
+            <XCircle className="h-5 w-5 shrink-0 text-warn" />
+            <p className="text-sm leading-relaxed text-ink-2">
+              {selectedBooking?.payment_status === 'paid' ? (
+                <>
+                  Your paid hold of <span className="font-semibold text-ink">₹{selectedBooking.advance_paid}</span> will be
+                  refunded to the original payment method. This cannot be undone.
+                </>
+              ) : (
+                <>This booking will be cancelled immediately. This cannot be undone.</>
+              )}
+            </p>
+          </div>
+          <div className="flex gap-2.5">
+            <Button variant="secondary" className="flex-1" onClick={() => setConfirmCancel(false)} disabled={cancelling}>
+              No, keep booking
+            </Button>
+            <Button className="flex-1 gap-1.5 bg-err hover:bg-err/90" onClick={doCancelBooking} disabled={cancelling}>
+              {cancelling ? 'Cancelling…' : 'Yes, cancel it'}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+      {cancelDialog}
     </div>
   );
 }

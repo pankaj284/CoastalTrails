@@ -10,6 +10,7 @@ import { InkUnderline } from '../components/ui/InkUnderline';
 import { TwinkleSparkle } from '../components/ui/Sparkle';
 import { api } from '../services/api';
 import { easeOut } from '../lib/motion';
+import { useLiveRefresh } from '../lib/live';
 
 interface ExplorePageProps {
   homestays: Homestay[];
@@ -156,6 +157,18 @@ export const ExplorePage: React.FC<ExplorePageProps> = ({
       .then(setAvailability)
       .catch((err) => console.error('Failed to load availability:', err));
   }, []);
+
+  useLiveRefresh(() => {
+    const t = new Date();
+    t.setHours(0, 0, 0, 0);
+    const from = t.toISOString().split('T')[0];
+    const toD = new Date(t);
+    toD.setDate(toD.getDate() + 90);
+    api
+      .getAvailability(from, toD.toISOString().split('T')[0])
+      .then(setAvailability)
+      .catch((err) => console.error('Failed to refresh availability:', err));
+  }, 30000);
 
   // Comprehensive Filtering
   const filteredStays = homestays.filter((stay) => {

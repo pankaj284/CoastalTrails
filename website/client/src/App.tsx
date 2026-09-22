@@ -15,6 +15,7 @@ import { Skeleton } from './components/ui/Skeleton';
 import { easeOut } from './lib/motion';
 import type { Homestay, User } from './types';
 import { api } from './services/api';
+import { useLiveRefresh } from './lib/live';
 
 const ExplorePage = lazy(() => import('./pages/ExplorePage').then((m) => ({ default: m.ExplorePage })));
 const StayDetailPage = lazy(() => import('./pages/StayDetailPage').then((m) => ({ default: m.StayDetailPage })));
@@ -95,15 +96,18 @@ export function App() {
   const [authMode, setAuthMode] = useState<'signin' | 'register'>('signin');
   const [isPaletteOpen, setIsPaletteOpen] = useState(false);
 
-  const fetchStays = async (beach?: string, search?: string, checkIn?: string, checkOut?: string) => {
+  const lastFilters = useRef<{ beach?: string; search?: string; checkIn?: string; checkOut?: string }>({});
+
+  const fetchStays = async (beach?: string, search?: string, checkIn?: string, checkOut?: string, silent = false) => {
+    lastFilters.current = { beach, search, checkIn, checkOut };
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const data = await api.getHomestays({ location: beach, search, checkIn, checkOut });
       setHomestays(data);
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -128,6 +132,11 @@ export function App() {
       setAuthReady(true);
     }
   }, []);
+
+  useLiveRefresh(() => {
+    const f = lastFilters.current;
+    fetchStays(f.beach, f.search, f.checkIn, f.checkOut, true);
+  }, 25000);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

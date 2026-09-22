@@ -34,7 +34,14 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-app.use(express.json({ limit: '30mb' }));
+app.use(
+  express.json({
+    limit: '30mb',
+    verify: (req, res, buf) => {
+      req.rawBody = buf;
+    },
+  })
+);
 app.use('/uploads', express.static(uploadsDir));
 
 // Request logger

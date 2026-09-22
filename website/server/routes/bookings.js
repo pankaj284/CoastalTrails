@@ -2,12 +2,86 @@ import express from 'express';
 import { all, get, run } from '../db/index.js';
 import { expireStaleHolds, getRoomsLeftMap, eachNight, localTodayISO, localDateTime, pickRoomForStay } from '../db/availability.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
-import { guestWhatsAppLink, hostWhatsAppLink, bookingWhatsAppText, sendWhatsApp, whatsAppProviderConfigured, sendBookingWhatsApp } from '../utils/whatsapp.js';
+import {
+  sendAdminNewBookingAlert,
+  sendBookingStatusEmail,
+  sendHoldCreatedEmail,
+} from '../services/mail.js';
+import { sendBookingWhatsApp } from '../utils/whatsapp.js';
 
 const router = express.Router();
 
 const HOLD_HOURS = 24;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+async function notifyBookingCreated(booking, stay, userEmail) {
+  try {
+    const imageRow = await get(
+      'SELECT image_url FROM homestay_images WHERE homestay_id = ? ORDER BY sort_order ASC LIMIT 1',
+      [booking.homestay_id]
+    );
+    const stayImage = imageRow?.image_url || '';
+    const to = userEmail || booking.user_email;
+    if (to) {
+      await sendHoldCreatedEmail({
+        to,
+        booking,
+        stayTitle: stay?.title || 'Your stay',
+        location: stay?.location_display || '',
+        hostName: stay?.host_name || '',
+        stayImage,
+        guestName: booking.user_name,
+        rating: stay?.rating,
+        reviews: stay?.reviews_count,
+      });
+    }
+    const adminEmail = process.env.MAIL_ADMIN || process.env.SMTP_USER;
+    if (adminEmail) {
+      await sendAdminNewBookingAlert({
+        to: adminEmail,
+        booking,
+        stayTitle: stay?.title || 'Stay',
+        location: stay?.location_display || '',
+        hostName: stay?.host_name || '',
+        stayImage,
+        guestName: booking.user_name,
+        rating: stay?.rating,
+        reviews: stay?.reviews_count,
+      });
+    }
+  } catch (err) {
+    console.error('[mail] booking create notify failed:', err.message);
+  }
+}
+
+async function notifyStatusChange(booking, status) {
+  if (!['confirmed', 'declined', 'cancelled'].includes(status)) return;
+  try {
+    const user = await get('SELECT email FROM users WHERE id = ? OR phone = ?', [booking.user_id, booking.user_phone]);
+    const stay = await get(
+      `SELECT h.title, h.location_display, h.host_name, h.host_whatsapp, h.rating, h.reviews_count,
+              (SELECT image_url FROM homestay_images i WHERE i.homestay_id = h.id ORDER BY i.sort_order ASC LIMIT 1) AS image
+       FROM homestays h WHERE h.id = ?`,
+      [booking.homestay_id]
+    );
+    const to = user?.email || booking.user_email;
+    if (!to) return;
+    await sendBookingStatusEmail({
+      to,
+      booking,
+      stayTitle: stay?.title || 'Your stay',
+      location: stay?.location_display || '',
+      hostName: stay?.host_name || '',
+      stayImage: stay?.image || '',
+      status,
+      guestName: booking.user_name,
+      rating: stay?.rating,
+      reviews: stay?.reviews_count,
+    });
+  } catch (err) {
+    console.error('[mail] status notify failed:', err.message);
+  }
+}
 
 function prettyDate(iso) {
   const [y, m, d] = String(iso).split('-').map(Number);
@@ -32,12 +106,7 @@ router.get('/', requireAuth, async (req, res) => {
        ORDER BY b.created_at DESC`,
       [req.user.id]
     );
-    res.json(
-      bookings.map((b) => ({
-        ...b,
-        guest_whatsapp_link: guestWhatsAppLink(b, { title: b.homestay_title, location_display: b.location_display, host_name: b.host_name, host_whatsapp: b.host_whatsapp }),
-      }))
-    );
+    res.json(bookings);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -57,21 +126,7 @@ router.get('/:id', requireAuth, async (req, res) => {
     if (booking.user_id !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You can only view your own bookings.' });
     }
-    res.json({
-      ...booking,
-      whatsapp_link: hostWhatsAppLink(booking, {
-        title: booking.homestay_title,
-        location_display: booking.location_display,
-        host_name: booking.host_name,
-        host_whatsapp: booking.host_whatsapp,
-      }),
-      guest_whatsapp_link: guestWhatsAppLink(booking, {
-        title: booking.homestay_title,
-        location_display: booking.location_display,
-        host_name: booking.host_name,
-        host_whatsapp: booking.host_whatsapp,
-      }),
-    });
+    res.json(booking);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -178,25 +233,41 @@ router.post('/', requireAuth, async (req, res) => {
 
     // Availability is computed live from active bookings, so no static date rows are written.
 
-    const created = await get('SELECT * FROM bookings WHERE id = ?', [id]);
-
-    // Automatic guest notification — the server sends it itself, no clicks needed.
-    const whatsapp = await sendBookingWhatsApp(created, homestay);
-    console.log(
-      whatsapp.sent
-        ? `WhatsApp booking confirmation sent to ${created.user_phone} (${whatsapp.provider})`
-        : `WhatsApp send failed for ${created.user_phone}: ${whatsapp.reason}`
+    // Generate pre-filled WhatsApp link for direct host pinging
+    const hostWhatsAppDigits = homestay.host_whatsapp.replace(/\D/g, '');
+    const waText = encodeURIComponent(
+      `Namaskara ${homestay.host_name}! New stay request from Coastal Trails:\n` +
+      `• Ref: ${reference_code}\n` +
+      `• Guest: ${user_name} (${user_phone})\n` +
+      `• Dates: ${check_in} to ${check_out} (${nights} night(s))\n` +
+      `• Advance Paid: ₹${advance_paid} (20% hold)\n` +
+      `• Balance Due on Arrival: ₹${balance_payable_at_property}\n` +
+      `Please reply 1 to CONFIRM or 2 to DECLINE.`
     );
+    const whatsappLink = `https://wa.me/${hostWhatsAppDigits}?text=${waText}`;
 
+    const created = await get('SELECT * FROM bookings WHERE id = ?', [id]);
+    void (async () => {
+      try {
+        const user = await get('SELECT email FROM users WHERE id = ?', [req.user.id]);
+        await notifyBookingCreated(created, homestay, user?.email || created.user_email);
+      } catch (err) {
+        console.error('[mail] create notify failed:', err.message);
+      }
+      const whatsapp = await sendBookingWhatsApp(created, homestay);
+      console.log(
+        whatsapp.sent
+          ? `WhatsApp booking confirmation sent to ${created.user_phone} (${whatsapp.provider})`
+          : `WhatsApp send failed for ${created.user_phone}: ${whatsapp.reason}`
+      );
+    })();
     res.status(201).json({
       ...created,
       nights,
       homestay_title: homestay.title,
       host_name: homestay.host_name,
       host_whatsapp: homestay.host_whatsapp,
-      whatsapp_link: hostWhatsAppLink(created, homestay),
-      guest_whatsapp_link: guestWhatsAppLink(created, homestay),
-      whatsapp_notification: whatsapp,
+      whatsapp_link: whatsappLink
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -227,18 +298,8 @@ router.patch('/:id/status', requireAdmin, async (req, res) => {
     }
 
     const updated = await get('SELECT * FROM bookings WHERE id = ? OR reference_code = ?', [req.params.id, req.params.id]);
-    const stay = updated ? await get('SELECT title, location_display, host_name, host_whatsapp FROM homestays WHERE id = ?', [updated.homestay_id]) : null;
-
-    // When the host confirms, the traveler gets the full booking details on WhatsApp
-    if (updated && status === 'confirmed') {
-      const text = bookingWhatsAppText(updated, stay);
-      if (whatsAppProviderConfigured()) {
-        const result = await sendWhatsApp(updated.user_phone, text);
-        console.log(result.sent ? `WhatsApp confirmation sent to ${updated.user_phone}` : `WhatsApp send failed: ${result.reason}`);
-      }
-    }
-
-    res.json({ ...updated, guest_whatsapp_link: updated ? guestWhatsAppLink(updated, stay) : null });
+    void notifyStatusChange(updated, status);
+    res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -271,6 +332,7 @@ router.post('/:id/cancel', requireAuth, async (req, res) => {
     }
 
     const updated = await get('SELECT * FROM bookings WHERE id = ?', [booking.id]);
+    void notifyStatusChange(updated, 'cancelled');
     res.json({
       ...updated,
       refund_note: wasPaid ? 'Your 20% hold will be returned to the original payment method.' : 'No payment was captured.',

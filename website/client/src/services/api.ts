@@ -150,8 +150,20 @@ export const api = {
     return res.json();
   },
 
-  // Payments (simulated gateway: initiate -> confirm verifies server-side)
-  async initiatePayment(bookingId: string, method: string): Promise<{ id: string; amount: number; status: string }> {
+  // Payments (Razorpay: initiate creates an order, confirm verifies signature)
+  async initiatePayment(
+    bookingId: string,
+    method: string,
+  ): Promise<{
+    id: string;
+    amount: number;
+    status: string;
+    order_id: string;
+    key_id: string;
+    amount_paise: number;
+    booking_reference: string;
+    customer: { name: string; phone: string };
+  }> {
     const res = await fetch(`${API_BASE}/payments/${bookingId}/initiate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -164,14 +176,45 @@ export const api = {
     return res.json();
   },
 
-  async confirmPayment(bookingId: string): Promise<{ booking: Booking }> {
+  async confirmPayment(
+    bookingId: string,
+    payload: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string },
+  ): Promise<{ booking: Booking }> {
     const res = await fetch(`${API_BASE}/payments/${bookingId}/confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.error || 'Could not verify the payment');
+    }
+    return res.json();
+  },
+
+  async failPayment(bookingId: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/payments/${bookingId}/fail`, {
       method: 'POST',
       headers: { ...authHeaders() },
     });
     if (!res.ok) {
       const err = await res.json().catch(() => null);
-      throw new Error(err?.error || 'Could not verify the payment');
+      throw new Error(err?.error || 'Could not update the payment');
+    }
+  },
+
+  async syncPayment(bookingId: string): Promise<{
+    booking: Booking;
+    synced: 'paid' | 'failed' | 'pending';
+    already_paid?: boolean;
+  }> {
+    const res = await fetch(`${API_BASE}/payments/${bookingId}/sync`, {
+      method: 'POST',
+      headers: { ...authHeaders() },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      throw new Error(err?.error || 'Could not sync the payment');
     }
     return res.json();
   },
