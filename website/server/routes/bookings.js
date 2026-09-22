@@ -2,11 +2,68 @@ import express from 'express';
 import { all, get, run } from '../db/index.js';
 import { expireStaleHolds, getRoomsLeftMap, eachNight, localTodayISO, localDateTime, pickRoomForStay } from '../db/availability.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import {
+  sendAdminNewBookingAlert,
+  sendBookingStatusEmail,
+  sendHoldCreatedEmail,
+} from '../services/mail.js';
 
 const router = express.Router();
 
 const HOLD_HOURS = 24;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+async function notifyBookingCreated(booking, stay, userEmail) {
+  try {
+    const to = userEmail || booking.user_email;
+    if (to) {
+      await sendHoldCreatedEmail({
+        to,
+        booking,
+        stayTitle: stay?.title || 'Your stay',
+        location: stay?.location_display || '',
+        hostName: stay?.host_name || '',
+        guestName: booking.user_name,
+      });
+    }
+    const adminEmail = process.env.MAIL_ADMIN || process.env.SMTP_USER;
+    if (adminEmail) {
+      await sendAdminNewBookingAlert({
+        to: adminEmail,
+        booking,
+        stayTitle: stay?.title || 'Stay',
+        location: stay?.location_display || '',
+        hostName: stay?.host_name || '',
+        guestName: booking.user_name,
+      });
+    }
+  } catch (err) {
+    console.error('[mail] booking create notify failed:', err.message);
+  }
+}
+
+async function notifyStatusChange(booking, status) {
+  if (!['confirmed', 'declined', 'cancelled'].includes(status)) return;
+  try {
+    const user = await get('SELECT email FROM users WHERE id = ? OR phone = ?', [booking.user_id, booking.user_phone]);
+    const stay = await get('SELECT title, location_display, host_name, host_whatsapp FROM homestays WHERE id = ?', [
+      booking.homestay_id,
+    ]);
+    const to = user?.email || booking.user_email;
+    if (!to) return;
+    await sendBookingStatusEmail({
+      to,
+      booking,
+      stayTitle: stay?.title || 'Your stay',
+      location: stay?.location_display || '',
+      hostName: stay?.host_name || '',
+      status,
+      guestName: booking.user_name,
+    });
+  } catch (err) {
+    console.error('[mail] status notify failed:', err.message);
+  }
+}
 
 function prettyDate(iso) {
   const [y, m, d] = String(iso).split('-').map(Number);
@@ -172,6 +229,14 @@ router.post('/', requireAuth, async (req, res) => {
     const whatsappLink = `https://wa.me/${hostWhatsAppDigits}?text=${waText}`;
 
     const created = await get('SELECT * FROM bookings WHERE id = ?', [id]);
+    void (async () => {
+      try {
+        const user = await get('SELECT email FROM users WHERE id = ?', [req.user.id]);
+        await notifyBookingCreated(created, homestay, user?.email || created.user_email);
+      } catch (err) {
+        console.error('[mail] create notify failed:', err.message);
+      }
+    })();
     res.status(201).json({
       ...created,
       nights,
@@ -209,6 +274,7 @@ router.patch('/:id/status', requireAdmin, async (req, res) => {
     }
 
     const updated = await get('SELECT * FROM bookings WHERE id = ? OR reference_code = ?', [req.params.id, req.params.id]);
+    void notifyStatusChange(updated, status);
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
