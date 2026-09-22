@@ -29,6 +29,7 @@ import { EmptyState } from '../components/ui/EmptyState';
 import { Skeleton } from '../components/ui/Skeleton';
 import { Reveal } from '../components/ui/Reveal';
 import { Tabs } from '../components/ui/Tabs';
+import { Dialog } from '../components/ui/Dialog';
 import { cn } from '../lib/cn';
 import { useLiveRefresh } from '../lib/live';
 import { openRazorpayCheckout } from '../lib/razorpay';
@@ -117,6 +118,7 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
   const [payingHold, setPayingHold] = useState(false);
   const syncingRef = useRef(false);
   const [payResult, setPayResult] = useState<{ kind: 'success' | 'failed'; message?: string } | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
   const fetchBookings = async (silent = false) => {
     if (!currentUser) {
@@ -195,7 +197,11 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
 
   const handleCancelBooking = async () => {
     if (!selectedBooking) return;
-    if (!window.confirm('Cancel this booking? Any paid hold is refunded to the original payment method.')) return;
+    setConfirmCancel(true);
+  };
+
+  const doCancelBooking = async () => {
+    if (!selectedBooking) return;
     setCancelling(true);
     try {
       await api.cancelBooking(selectedBooking.id);
@@ -205,6 +211,7 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
       setNotice(err instanceof Error ? err.message : 'Could not cancel the booking.');
     } finally {
       setCancelling(false);
+      setConfirmCancel(false);
     }
   };
 
@@ -337,6 +344,34 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
   const holdsPaid = matchingBookings.reduce((sum, b) => sum + (b.advance_paid || 0), 0);
 
   const countdown = useCountdown(selectedBooking?.hold_expires_at);
+
+  const cancelDialog = (
+    <Dialog open={confirmCancel} onClose={() => setConfirmCancel(false)} title="Cancel this booking?">
+      <div className="space-y-4">
+        <div className="flex items-start gap-3 rounded-xl border border-warn/40 bg-warn/10 p-3">
+          <XCircle className="h-5 w-5 shrink-0 text-warn" />
+          <p className="text-sm leading-relaxed text-ink-2">
+            {selectedBooking?.payment_status === 'paid' ? (
+              <>
+                Your paid hold of <span className="font-semibold text-ink">₹{selectedBooking.advance_paid}</span> will be
+                refunded to the original payment method. This cannot be undone.
+              </>
+            ) : (
+              <>This booking will be cancelled immediately. This cannot be undone.</>
+            )}
+          </p>
+        </div>
+        <div className="flex gap-2.5">
+          <Button variant="secondary" className="flex-1" onClick={() => setConfirmCancel(false)} disabled={cancelling}>
+            No, keep booking
+          </Button>
+          <Button className="flex-1 gap-1.5 bg-err hover:bg-err/90" onClick={doCancelBooking} disabled={cancelling}>
+            {cancelling ? 'Cancelling…' : 'Yes, cancel it'}
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  );
 
   if (selectedBooking) {
     const isConfirmed = ['confirmed', 'checked_in', 'completed'].includes(selectedBooking.status);
@@ -649,6 +684,7 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
             Back to all bookings
           </button>
         </div>
+        {cancelDialog}
       </div>
     );
   }
@@ -935,6 +971,32 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
         </AnimatePresence>,
         document.body,
       )}
+
+      <Dialog open={confirmCancel} onClose={() => setConfirmCancel(false)} title="Cancel this booking?">
+        <div className="space-y-4">          <div className="flex items-start gap-3 rounded-xl border border-warn/40 bg-warn/10 p-3">
+            <XCircle className="h-5 w-5 shrink-0 text-warn" />
+            <p className="text-sm leading-relaxed text-ink-2">
+              {selectedBooking?.payment_status === 'paid' ? (
+                <>
+                  Your paid hold of <span className="font-semibold text-ink">₹{selectedBooking.advance_paid}</span> will be
+                  refunded to the original payment method. This cannot be undone.
+                </>
+              ) : (
+                <>This booking will be cancelled immediately. This cannot be undone.</>
+              )}
+            </p>
+          </div>
+          <div className="flex gap-2.5">
+            <Button variant="secondary" className="flex-1" onClick={() => setConfirmCancel(false)} disabled={cancelling}>
+              No, keep booking
+            </Button>
+            <Button className="flex-1 gap-1.5 bg-err hover:bg-err/90" onClick={doCancelBooking} disabled={cancelling}>
+              {cancelling ? 'Cancelling…' : 'Yes, cancel it'}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+      {cancelDialog}
     </div>
   );
 }
