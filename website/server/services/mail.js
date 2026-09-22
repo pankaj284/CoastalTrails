@@ -47,9 +47,15 @@ function fmtMoney(n) {
   return new Intl.NumberFormat('en-IN').format(Number(n) || 0);
 }
 
+function toDate(value) {
+  if (value instanceof Date) return value;
+  if (typeof value === 'string' && value) return new Date(`${value}T00:00:00`);
+  return null;
+}
+
 function fmtDate(iso, opts) {
-  if (!iso) return '—';
-  const d = new Date(`${iso}T00:00:00`);
+  const d = toDate(iso);
+  if (!d || Number.isNaN(d.getTime())) return '—';
   if (opts?.long) {
     return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
   }
@@ -60,8 +66,9 @@ function fmtDate(iso, opts) {
 }
 
 function nights(booking) {
-  const a = new Date(`${booking.check_in}T00:00:00`).getTime();
-  const b = new Date(`${booking.check_out}T00:00:00`).getTime();
+  const a = toDate(booking.check_in)?.getTime();
+  const b = toDate(booking.check_out)?.getTime();
+  if (!a || !b || Number.isNaN(a) || Number.isNaN(b)) return 1;
   return Math.max(1, Math.round((b - a) / 86400000));
 }
 
