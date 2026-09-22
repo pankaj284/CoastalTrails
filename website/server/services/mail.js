@@ -177,20 +177,12 @@ function qrBlock(referenceCode) {
     )
     .join('');
   return `
-    <div style="margin-top:26px;padding-top:24px;border-top:1px dashed ${T.line2};">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-        <tr>
-          <td width="130" align="center" valign="middle">
-            <img src="cid:qrcode" width="118" height="118" style="border:1px solid ${T.line};border-radius:12px;padding:6px;background:#fff;">
-            <div style="font-family:${FONT_MONO};font-size:9px;letter-spacing:0.16em;text-transform:uppercase;color:${T.ink3};margin-top:8px;">Scan to verify</div>
-          </td>
-          <td valign="middle" style="padding-left:18px;">
-            <table role="presentation" align="center" cellpadding="0" cellspacing="0" style="height:29px;"><tr>${barTds}</tr></table>
-            <div style="font-family:${FONT_MONO};font-size:14px;font-weight:600;letter-spacing:0.25em;color:${T.ink};margin-top:6px;text-align:center;">${escapeHtml(referenceCode)}</div>
-            <div style="font-family:${FONT_MONO};font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:${T.ok};margin-top:6px;text-align:center;">Valid for check-in</div>
-          </td>
-        </tr>
-      </table>
+    <div style="margin-top:26px;padding-top:24px;border-top:1px dashed ${T.line2};text-align:center;">
+      <img src="cid:qrcode" width="112" height="112" style="border:1px solid ${T.line};border-radius:12px;padding:6px;background:#fff;display:inline-block;">
+      <div style="font-family:${FONT_MONO};font-size:9px;letter-spacing:0.16em;text-transform:uppercase;color:${T.ink3};margin:8px 0 16px;">Scan to verify</div>
+      <table role="presentation" align="center" cellpadding="0" cellspacing="0" style="height:29px;"><tr>${barTds}</tr></table>
+      <div style="font-family:${FONT_MONO};font-size:14px;font-weight:600;letter-spacing:0.25em;color:${T.ink};margin-top:6px;">${escapeHtml(referenceCode)}</div>
+      <div style="font-family:${FONT_MONO};font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:${T.ok};margin-top:6px;">Valid for check-in</div>
     </div>`;
 }
 

@@ -679,18 +679,18 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
                   </div>
                 </div>
 
-                <div className="mt-6 flex items-center gap-5 border-t border-dashed border-line-2 pt-5">
+                <div className="mt-6 flex flex-col items-center gap-4 border-t border-dashed border-line-2 pt-5">
                   {qrDataUrl ? (
-                    <div className="flex shrink-0 flex-col items-center gap-1.5">
+                    <div className="flex flex-col items-center gap-1.5">
                       <img
                         src={qrDataUrl}
                         alt="Booking QR code"
-                        className="h-28 w-28 rounded-lg border border-line bg-white p-1.5"
+                        className="h-24 w-24 rounded-lg border border-line bg-white p-1.5"
                       />
                       <span className="font-mono text-[9px] uppercase tracking-widest text-ink-3">Scan to verify</span>
                     </div>
                   ) : null}
-                  <div className="flex min-w-0 flex-1 flex-col items-center gap-2">
+                  <div className="flex w-full flex-col items-center gap-2">
                     <div className="flex h-12 items-stretch gap-[2px]" aria-hidden="true">
                       {Array.from({ length: 42 }).map((_, i) => (
                         <span
