@@ -136,7 +136,105 @@ function receiptRows(booking, paymentState) {
                     </table>`;
 }
 
-function voucher({ booking, stay, paymentState, statusPill, cta, guestName }) {
+function cancelledVoucher({ booking, stay, statusPill, guestName }) {
+  const refunded = booking.payment_status === 'refunded';
+  const holdAmount = Number(booking.advance_paid) || 0;
+  return `
+        <table role="presentation" class="email-container" width="100%" border="0" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.05);">
+
+          <tr>
+            <td class="mobile-padding" style="padding:16px 22px;background-color:#ffffff;border-bottom:1px solid #edf2f7;">
+              <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td width="56" valign="middle" style="padding-right:10px;">
+                    <img src="cid:coastallogo" alt="Coastal Trails" width="50" style="display:block;width:50px;height:auto;border:0;background:transparent;">
+                  </td>
+                  <td valign="middle">
+                    <div>
+                      <span style="background-color:#e4f2ee;color:#0f3d35;font-size:9px;font-weight:800;letter-spacing:0.8px;padding:3px 6px;border-radius:4px;text-transform:uppercase;">Digital Pass 2026</span>
+                    </div>
+                    <div style="font-family:'Courier New',monospace;font-size:15px;font-weight:800;color:#0f3d35;letter-spacing:0.5px;margin-top:3px;">${escapeHtml(booking.reference_code)}</div>
+                    ${guestName ? `<div style="font-size:10px;color:#697471;margin-top:2px;letter-spacing:0.2px;">Guest: ${escapeHtml(guestName)}</div>` : ''}
+                  </td>
+                  <td align="right" valign="middle">
+                    ${statusPill}
+                    <div style="font-size:10px;color:#697471;margin-top:3px;">${escapeHtml(fmtDate(booking.created_at))}</div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td class="mobile-padding" style="padding:24px 22px 18px 22px;text-align:center;">
+              <img src="cid:wordmark" alt="Coastal Trails" width="240" style="width:240px;max-width:80%;height:auto;display:block;margin:0 auto;border:0;">
+              <h2 style="margin:14px 0 4px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:20px;line-height:26px;color:#0f3d35;font-weight:800;letter-spacing:-0.3px;text-align:center;">
+                ${escapeHtml(stay.title)}
+              </h2>
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0" align="center" style="margin:0 auto;">
+                <tr>
+                  <td valign="middle" style="padding-right:5px;">${icon('map-pin', 14)}</td>
+                  <td valign="middle" style="font-size:13px;color:#4a5568;line-height:17px;">${escapeHtml(stay.location)} &bull; Gokarna, Karnataka</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td class="mobile-padding" style="padding:8px 22px 24px 22px;">
+              <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="border:1px solid #fecaca;background-color:#fef2f2;border-radius:12px;">
+                <tr>
+                  <td style="padding:20px 22px;">
+                    <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="font-size:16px;font-weight:800;color:#b91c1c;">
+                          ${icon('x-circle', 18, 'margin-right:6px;')}
+                          Booking Cancelled
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding-top:12px;font-size:13px;color:#334155;line-height:20px;">
+                          Booking ref: <span style="font-family:'Courier New',monospace;font-weight:800;color:#0f3d35;">${escapeHtml(booking.reference_code)}</span>
+                          &nbsp;&bull;&nbsp; Cancelled on ${escapeHtml(fmtDate(new Date()))}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding-top:8px;font-size:13px;color:#334155;line-height:20px;">
+                          Hold amount (20%): <span style="font-family:'Courier New',monospace;font-weight:800;color:${refunded ? '#059669' : '#0f3d35'};">&#8377;${fmtMoney(holdAmount)}</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding-top:6px;font-size:13px;color:#334155;line-height:20px;">
+                          ${refunded ? icon('check-circle-2', 14, 'margin-right:4px;') : icon('clock', 14, 'margin-right:4px;')}
+                          ${refunded ? 'Refund initiated &mdash; this amount will be returned to your original payment method (5&ndash;7 business days).' : 'No payment was captured for this booking.'}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style="padding-top:16px;text-align:center;">
+                          <a href="${SITE_URL}" style="display:inline-block;background-color:#0f3d35;color:#ffffff;text-decoration:none;font-weight:700;font-size:13px;padding:12px 28px;border-radius:10px;">Book another stay</a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <tr>
+            <td class="mobile-padding" style="background-color:#ffffff;border-top:1px solid #f0eee3;padding:18px 22px;text-align:center;">
+              <p style="margin:0 0 5px 0;font-size:11px;color:#43504d;font-weight:600;">Have questions about your cancellation or refund?</p>
+              <p style="margin:0 0 8px 0;font-size:12px;color:#626f6b;">Our team is ready to assist at <a href="mailto:support@coastaltrails.in" style="color:#0f3d35;font-weight:800;text-decoration:underline;">support@coastaltrails.in</a></p>
+              <p style="margin:0;font-size:10px;color:#8e9794;letter-spacing:0.3px;">&copy; 2026 Coastal Trails Hospitality Network &bull; Gokarna, Karnataka. All rights reserved.</p>
+            </td>
+          </tr>
+        </table>`;
+}
+
+function voucher({ booking, stay, paymentState, statusPill, cta, guestName, cancelled }) {
+  if (cancelled) {
+    return cancelledVoucher({ booking, stay, statusPill, guestName });
+  }
   const n = nights(booking);
   const roomLabel = booking.room_number ? `Room ${booking.room_number}` : 'Private Chalet';
   return `
@@ -456,7 +554,7 @@ export async function sendBookingStatusEmail({ to, booking, stayTitle, location,
   const paymentState = booking.payment_status === 'paid' ? 'paid' : booking.payment_status === 'refunded' ? 'refunded' : 'pending';
   const html = emailShell({
     title: `Booking Update - ${stayTitle} | Coastal Trails`,
-    inner: voucher({ booking, stay, paymentState, statusPill, guestName }),
+    inner: voucher({ booking, stay, paymentState, statusPill, guestName, cancelled: status === 'cancelled' }),
   });
   return send({ to, subject: `Booking update · ${booking.reference_code} — ${status}`, html, label: `status email (${status}) for ${booking.reference_code}`, qrText: qrTextFor(booking) });
 }
