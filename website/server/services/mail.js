@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import QRCode from 'qrcode';
 
 const SITE_URL = process.env.SITE_URL || 'https://coastaltrails.in';
+const HOLD_RATE = 0.2;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOGO_PATH = path.resolve(__dirname, '../assets/brand-logo.png');
@@ -138,7 +139,10 @@ function receiptRows(booking, paymentState) {
 
 function cancelledReceipt(booking, paymentState) {
   const refunded = paymentState === 'refunded' || booking.payment_status === 'refunded';
-  const holdAmount = Number(booking.advance_paid) || 0;
+  const charged = refunded || Number(booking.advance_paid) > 0;
+  const holdAmount = Number(booking.advance_paid) > 0
+    ? Number(booking.advance_paid)
+    : Math.round(Number(booking.total_amount) * HOLD_RATE);
   return `
                     <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="font-size:13px;line-height:22px;">
                       <tr>
@@ -151,7 +155,7 @@ function cancelledReceipt(booking, paymentState) {
                       </tr>
                       <tr>
                         <td style="color:#64748b;padding:4px 0;">Hold amount (20%)</td>
-                        <td align="right" style="font-weight:800;color:${refunded ? '#059669' : '#0f3d35'};padding:4px 0;font-family:'Courier New',monospace;">&#8377;${fmtMoney(holdAmount)}</td>
+                        <td align="right" style="font-weight:800;color:${refunded ? '#059669' : '#0f3d35'};padding:4px 0;font-family:'Courier New',monospace;">&#8377;${fmtMoney(holdAmount)}${charged ? '' : ' (not charged)'}</td>
                       </tr>
                       <tr>
                         <td colspan="2" style="padding-top:6px;border-bottom:1px solid #f1f5f9;"></td>
