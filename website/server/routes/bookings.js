@@ -325,6 +325,7 @@ router.post('/:id/cancel', requireAuth, async (req, res) => {
     }
 
     const updated = await get('SELECT * FROM bookings WHERE id = ?', [booking.id]);
+    void notifyStatusChange(updated, 'cancelled');
     res.json({
       ...updated,
       refund_note: wasPaid ? 'Your 20% hold will be returned to the original payment method.' : 'No payment was captured.',
