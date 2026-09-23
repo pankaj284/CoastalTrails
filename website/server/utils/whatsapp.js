@@ -7,6 +7,13 @@
 //     (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_WHATSAPP_FROM),
 //     sendWhatsApp() delivers the message server-side without user action.
 
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const HEADER_IMAGE_PATH = path.resolve(__dirname, '../assets/whatsapp-header.jpg');
+
 function toWaNumber(raw) {
   let digits = String(raw || '').replace(/\D/g, '');
   if (!digits) return '';
@@ -106,8 +113,34 @@ export function metaWhatsAppConfigured() {
   return Boolean(process.env.WHATSAPP_PHONE_NUMBER_ID && process.env.WHATSAPP_ACCESS_TOKEN);
 }
 
+let headerMedia = { id: null, at: 0 };
+const HEADER_MEDIA_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+async function getHeaderMediaId() {
+  if (headerMedia.id && Date.now() - headerMedia.at < HEADER_MEDIA_TTL_MS) return headerMedia.id;
+
+  const buffer = fs.readFileSync(HEADER_IMAGE_PATH);
+  const form = new FormData();
+  form.append('messaging_product', 'whatsapp');
+  form.append('type', 'image/jpeg');
+  form.append('file', new Blob([buffer], { type: 'image/jpeg' }), 'whatsapp-header.jpg');
+
+  const version = process.env.WHATSAPP_API_VERSION || 'v22.0';
+  const res = await fetch(`https://graph.facebook.com/${version}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/media`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}` },
+    body: form,
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data?.id) {
+    throw new Error(data?.error?.message || `header image upload failed (${res.status})`);
+  }
+  headerMedia = { id: data.id, at: Date.now() };
+  return data.id;
+}
+
 // Meta WhatsApp Cloud API template delivery.
-export async function sendWhatsAppTemplate(toPhone, templateName, bodyParams = []) {
+export async function sendWhatsAppTemplate(toPhone, templateName, bodyParams = [], options = {}) {
   if (!metaWhatsAppConfigured()) {
     return { sent: false, provider: 'meta', reason: 'meta provider not configured' };
   }
@@ -116,58 +149,74 @@ export async function sendWhatsAppTemplate(toPhone, templateName, bodyParams = [
 
   const version = process.env.WHATSAPP_API_VERSION || 'v22.0';
   const language = process.env.WHATSAPP_TEMPLATE_LANG || 'en';
-  const payload = {
-    messaging_product: 'whatsapp',
-    to,
-    type: 'template',
-    template: {
-      name: templateName,
-      language: { code: language },
-      components: bodyParams.length
-        ? [
-            {
-              type: 'body',
-              parameters: bodyParams.map((text) => ({ type: 'text', text: String(text ?? '') })),
-            },
-          ]
-        : undefined,
-    },
+
+  const attempt = async (includeHeader) => {
+    try {
+      const components = [];
+      if (includeHeader) {
+        const mediaId = await getHeaderMediaId();
+        components.push({ type: 'header', parameters: [{ type: 'image', image: { id: mediaId } }] });
+      }
+      if (bodyParams.length > 0) {
+        components.push({
+          type: 'body',
+          parameters: bodyParams.map((text) => ({ type: 'text', text: String(text ?? '') })),
+        });
+      }
+
+      const res = await fetch(`https://graph.facebook.com/${version}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to,
+          type: 'template',
+          template: {
+            name: templateName,
+            language: { code: language },
+            ...(components.length > 0 ? { components } : {}),
+          },
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        return {
+          sent: false,
+          provider: 'meta',
+          reason: data?.error?.message || `provider error ${res.status}`,
+        };
+      }
+      return { sent: true, provider: 'meta', message_id: data?.messages?.[0]?.id };
+    } catch (err) {
+      return { sent: false, provider: 'meta', reason: err.message };
+    }
   };
 
-  try {
-    const res = await fetch(`https://graph.facebook.com/${version}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok) {
-      return {
-        sent: false,
-        provider: 'meta',
-        reason: data?.error?.message || `provider error ${res.status}`,
-      };
-    }
-    return { sent: true, provider: 'meta', message_id: data?.messages?.[0]?.id };
-  } catch (err) {
-    return { sent: false, provider: 'meta', reason: err.message };
+  let result = await attempt(Boolean(options.headerImage));
+  if (!result.sent && options.headerImage) {
+    const retry = await attempt(false);
+    if (retry.sent) result = { ...retry, header_omitted: true };
   }
+  return result;
 }
 
 // Preferred provider: Meta Cloud API template, falling back to Twilio free text.
 export async function sendBookingWhatsApp(booking, homestay) {
   if (metaWhatsAppConfigured()) {
-    const templateName = process.env.WHATSAPP_BOOKING_TEMPLATE || 'booking_confirmed';
+    const templateName = process.env.WHATSAPP_BOOKING_TEMPLATE || 'ct_booking_confirmed';
     return sendWhatsAppTemplate(booking.user_phone, templateName, [
       booking.user_name,
       booking.reference_code,
       homestay?.title || 'Coastal stay',
       prettyDate(booking.check_in),
       prettyDate(booking.check_out),
-    ]);
+      booking.guests_count,
+      Number(booking.total_amount || 0).toLocaleString('en-IN'),
+      Number(booking.advance_paid || 0).toLocaleString('en-IN'),
+    ], { headerImage: true });
   }
   if (whatsAppProviderConfigured()) {
     const result = await sendWhatsApp(booking.user_phone, bookingWhatsAppText(booking, homestay));
@@ -176,17 +225,39 @@ export async function sendBookingWhatsApp(booking, homestay) {
   return { sent: false, provider: null, reason: 'provider not configured' };
 }
 
-export async function sendPaymentWhatsApp(booking) {
+export async function sendPaymentWhatsApp(booking, homestay) {
   if (!metaWhatsAppConfigured()) {
     return { sent: false, provider: null, reason: 'provider not configured' };
   }
-  const templateName = process.env.WHATSAPP_PAYMENT_TEMPLATE || 'payment_received';
+  const templateName = process.env.WHATSAPP_PAYMENT_TEMPLATE || 'ct_payment_receipt';
   return sendWhatsAppTemplate(booking.user_phone, templateName, [
     booking.user_name,
     booking.reference_code,
+    homestay?.title || 'Coastal stay',
+    prettyDate(booking.check_in),
+    prettyDate(booking.check_out),
+    booking.guests_count,
+    Number(booking.total_amount || 0).toLocaleString('en-IN'),
     Number(booking.advance_paid || 0).toLocaleString('en-IN'),
     Number(booking.balance_payable_at_property || 0).toLocaleString('en-IN'),
-  ]);
+  ], { headerImage: true });
+}
+
+export async function sendPaymentFailedWhatsApp(booking, homestay) {
+  if (!metaWhatsAppConfigured()) {
+    return { sent: false, provider: null, reason: 'provider not configured' };
+  }
+  const templateName = process.env.WHATSAPP_PAYMENT_FAILED_TEMPLATE || 'ct_payment_pending';
+  return sendWhatsAppTemplate(booking.user_phone, templateName, [
+    booking.user_name,
+    booking.reference_code,
+    homestay?.title || 'your stay',
+    prettyDate(booking.check_in),
+    prettyDate(booking.check_out),
+    booking.guests_count,
+    Number(booking.total_amount || 0).toLocaleString('en-IN'),
+    Math.round(Number(booking.total_amount || 0) * 0.2).toLocaleString('en-IN'),
+  ], { headerImage: true });
 }
 
 export async function sendSignupWhatsApp(user) {
@@ -194,7 +265,7 @@ export async function sendSignupWhatsApp(user) {
     return { sent: false, provider: null, reason: 'provider not configured' };
   }
   const templateName = process.env.WHATSAPP_SIGNUP_TEMPLATE || 'signup_welcome';
-  return sendWhatsAppTemplate(user.phone, templateName, [user.name]);
+  return sendWhatsAppTemplate(user.phone, templateName, [user.name], { headerImage: true });
 }
 
 // Server-side delivery (Twilio WhatsApp). Returns { sent, reason, sid }.

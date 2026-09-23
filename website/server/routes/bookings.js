@@ -7,7 +7,6 @@ import {
   sendBookingStatusEmail,
   sendHoldCreatedEmail,
 } from '../services/mail.js';
-import { sendBookingWhatsApp } from '../utils/whatsapp.js';
 
 const router = express.Router();
 
@@ -254,12 +253,6 @@ router.post('/', requireAuth, async (req, res) => {
       } catch (err) {
         console.error('[mail] create notify failed:', err.message);
       }
-      const whatsapp = await sendBookingWhatsApp(created, homestay);
-      console.log(
-        whatsapp.sent
-          ? `WhatsApp booking confirmation sent to ${created.user_phone} (${whatsapp.provider})`
-          : `WhatsApp send failed for ${created.user_phone}: ${whatsapp.reason}`
-      );
     })();
     res.status(201).json({
       ...created,

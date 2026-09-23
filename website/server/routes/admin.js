@@ -1,7 +1,7 @@
 import express from 'express';
 import { all, get, run } from '../db/index.js';
 import { requireAdmin } from '../middleware/auth.js';
-import { guestWhatsAppLink, bookingWhatsAppText, sendWhatsApp, whatsAppProviderConfigured } from '../utils/whatsapp.js';
+import { guestWhatsAppLink, sendBookingWhatsApp } from '../utils/whatsapp.js';
 
 const router = express.Router();
 
@@ -480,10 +480,12 @@ router.post('/bookings', async (req, res) => {
     const stayForMessage = { title: stay.title, location_display: stay.location_display, host_name: stay.host_name, host_whatsapp: stay.host_whatsapp };
 
     // The desk guest gets the booking details on WhatsApp as well
-    if (whatsAppProviderConfigured()) {
-      const result = await sendWhatsApp(created.user_phone, bookingWhatsAppText(created, stayForMessage));
-      console.log(result.sent ? `WhatsApp desk confirmation sent to ${created.user_phone}` : `WhatsApp send failed: ${result.reason}`);
-    }
+    const deskWhatsapp = await sendBookingWhatsApp(created, stayForMessage);
+    console.log(
+      deskWhatsapp.sent
+        ? `WhatsApp desk confirmation sent to ${created.user_phone} (${deskWhatsapp.provider})`
+        : `WhatsApp desk confirmation failed for ${created.user_phone}: ${deskWhatsapp.reason}`
+    );
 
     res.status(201).json({ ...created, nights, guest_whatsapp_link: guestWhatsAppLink(created, stayForMessage) });
   } catch (err) {
