@@ -30,7 +30,7 @@ function handleAuthError(res: Response, errData?: any) {
   }
 }
 
-async function authRequest(path: string, body: Record<string, unknown>): Promise<User> {
+async function authRequest(path: string, body: Record<string, unknown>, retry = 1): Promise<User> {
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, {
@@ -39,11 +39,19 @@ async function authRequest(path: string, body: Record<string, unknown>): Promise
       body: JSON.stringify(body),
     });
   } catch {
+    if (retry > 0) {
+      await new Promise((r) => setTimeout(r, 1000));
+      return authRequest(path, body, retry - 1);
+    }
     throw new Error('Unable to reach the server. Check your connection and try again.');
   }
 
   const data = await res.json().catch(() => null);
   if (!res.ok) {
+    if ((res.status === 502 || res.status === 503 || res.status === 504) && retry > 0) {
+      await new Promise((r) => setTimeout(r, 1200));
+      return authRequest(path, body, retry - 1);
+    }
     throw new Error(data?.error || 'Something went wrong. Please try again.');
   }
   return {
