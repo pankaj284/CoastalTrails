@@ -15,6 +15,21 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+function handleAuthError(res: Response, errData?: any) {
+  if (res.status === 401) {
+    try {
+      localStorage.removeItem('gokarna_traveler_user');
+    } catch {}
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('auth:expired', {
+          detail: { message: errData?.error || 'Your session has expired. Please sign in again.' },
+        })
+      );
+    }
+  }
+}
+
 async function authRequest(path: string, body: Record<string, unknown>): Promise<User> {
   let res: Response;
   try {
@@ -106,7 +121,11 @@ export const api = {
   // identity from the logged-in user.
   async getBookings(): Promise<Booking[]> {
     const res = await fetch(`${API_BASE}/bookings`, { headers: { ...authHeaders() } });
-    if (!res.ok) throw new Error('Failed to fetch bookings');
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      handleAuthError(res, err);
+      throw new Error(err?.error || 'Failed to fetch bookings');
+    }
     return res.json();
   },
 
@@ -115,6 +134,8 @@ export const api = {
     check_in: string;
     check_out: string;
     guests_count: number;
+    user_name?: string;
+    user_phone?: string;
   }): Promise<Booking> {
     const res = await fetch(`${API_BASE}/bookings`, {
       method: 'POST',
@@ -122,8 +143,9 @@ export const api = {
       body: JSON.stringify(booking),
     });
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || 'Failed to create booking');
+      const err = await res.json().catch(() => null);
+      handleAuthError(res, err);
+      throw new Error(err?.error || 'Failed to create booking');
     }
     return res.json();
   },
@@ -134,7 +156,11 @@ export const api = {
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ status }),
     });
-    if (!res.ok) throw new Error('Failed to update booking status');
+    if (!res.ok) {
+      const err = await res.json().catch(() => null);
+      handleAuthError(res, err);
+      throw new Error(err?.error || 'Failed to update booking status');
+    }
     return res.json();
   },
 
@@ -145,6 +171,7 @@ export const api = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => null);
+      handleAuthError(res, err);
       throw new Error(err?.error || 'Failed to cancel the booking');
     }
     return res.json();
@@ -171,6 +198,7 @@ export const api = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => null);
+      handleAuthError(res, err);
       throw new Error(err?.error || 'Could not start the payment');
     }
     return res.json();
@@ -187,6 +215,7 @@ export const api = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => null);
+      handleAuthError(res, err);
       throw new Error(err?.error || 'Could not verify the payment');
     }
     return res.json();
@@ -199,6 +228,7 @@ export const api = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => null);
+      handleAuthError(res, err);
       throw new Error(err?.error || 'Could not update the payment');
     }
   },
@@ -214,6 +244,7 @@ export const api = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => null);
+      handleAuthError(res, err);
       throw new Error(err?.error || 'Could not sync the payment');
     }
     return res.json();
@@ -227,6 +258,28 @@ export const api = {
   },
 
   // Auth
+  async getMe(): Promise<User | null> {
+    const token = getAuthToken();
+    if (!token) return null;
+    try {
+      const res = await fetch(`${API_BASE}/auth/me`, {
+        headers: { ...authHeaders() },
+      });
+      if (!res.ok) {
+        if (res.status === 401) {
+          try {
+            localStorage.removeItem('gokarna_traveler_user');
+          } catch {}
+        }
+        return null;
+      }
+      const data = await res.json();
+      return data;
+    } catch {
+      return null;
+    }
+  },
+
   async register(data: { name: string; phone: string; email: string; password: string }): Promise<User> {
     return authRequest('/auth/register', data);
   },
@@ -240,6 +293,10 @@ export const api = {
       await fetch(`${API_BASE}/auth/logout`, { method: 'POST', headers: { ...authHeaders() } });
     } catch {
       /* signing out locally is enough */
+    } finally {
+      try {
+        localStorage.removeItem('gokarna_traveler_user');
+      } catch {}
     }
   },
 

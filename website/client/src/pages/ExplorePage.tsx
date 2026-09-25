@@ -384,32 +384,6 @@ export const ExplorePage: React.FC<ExplorePageProps> = ({
 
             {/* Beach filters + Filters button on the same line */}
             <div className="flex w-full items-center gap-2 md:w-auto">
-              <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-1 scrollbar-none md:flex-none">
-                {[
-                  { id: 'all', label: 'All Gokarna' },
-                  { id: 'kudle', label: 'Kudle Beach' },
-                  { id: 'om', label: 'Om Beach' },
-                  { id: 'halfMoon', label: 'Half Moon' },
-                  { id: 'paradise', label: 'Paradise Beach' },
-                  { id: 'mainBeach', label: 'Main Beach / Town' },
-                ].map((b) => {
-                  const isSelected = selectedBeach === b.id;
-                  return (
-                    <button
-                      key={b.id}
-                      type="button"
-                      onClick={() => setSelectedBeach(b.id)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all cursor-pointer border ${
-                        isSelected
-                          ? 'bg-tide text-white border-tide shadow-xs font-bold'
-                          : 'bg-elevated text-ink-2 border-line-2 hover:border-tide hover:text-ink'
-                      }`}
-                    >
-                      {b.label}
-                    </button>
-                  );
-                })}
-              </div>
               <div className="relative shrink-0" ref={filterRef}>
                 <button
                   type="button"

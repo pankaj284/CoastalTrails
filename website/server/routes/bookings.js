@@ -3,10 +3,10 @@ import { all, get, run } from '../db/index.js';
 import { expireStaleHolds, getRoomsLeftMap, eachNight, localTodayISO, localDateTime, pickRoomForStay } from '../db/availability.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import {
-  sendAdminNewBookingAlert,
   sendBookingStatusEmail,
   sendHoldCreatedEmail,
 } from '../services/mail.js';
+import { guestWhatsAppLink, hostWhatsAppLink } from '../utils/whatsapp.js';
 
 const router = express.Router();
 
@@ -26,20 +26,6 @@ async function notifyBookingCreated(booking, stay, userEmail) {
         to,
         booking,
         stayTitle: stay?.title || 'Your stay',
-        location: stay?.location_display || '',
-        hostName: stay?.host_name || '',
-        stayImage,
-        guestName: booking.user_name,
-        rating: stay?.rating,
-        reviews: stay?.reviews_count,
-      });
-    }
-    const adminEmail = process.env.MAIL_ADMIN || process.env.SMTP_USER;
-    if (adminEmail) {
-      await sendAdminNewBookingAlert({
-        to: adminEmail,
-        booking,
-        stayTitle: stay?.title || 'Stay',
         location: stay?.location_display || '',
         hostName: stay?.host_name || '',
         stayImage,
@@ -112,6 +98,24 @@ router.get('/', requireAuth, async (req, res) => {
 });
 
 // GET /api/bookings/:id - owner (or admin) only
+// POST /api/bookings/:id/notify-hold
+// Send hold voucher only if traveler explicitly chose "Pay later — finish from My Bookings"
+router.post('/:id/notify-hold', requireAuth, async (req, res) => {
+  try {
+    const booking = await get('SELECT * FROM bookings WHERE id = ? OR reference_code = ?', [req.params.id, req.params.id]);
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    if (booking.user_id !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'You can only manage your own booking.' });
+    }
+    const homestay = await get('SELECT * FROM homestays WHERE id = ?', [booking.homestay_id]);
+    const user = await get('SELECT email FROM users WHERE id = ?', [req.user.id]);
+    await notifyBookingCreated(booking, homestay, user?.email || booking.user_email);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/:id', requireAuth, async (req, res) => {
   try {
     const booking = await get(`
@@ -125,7 +129,17 @@ router.get('/:id', requireAuth, async (req, res) => {
     if (booking.user_id !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You can only view your own bookings.' });
     }
-    res.json(booking);
+    const homestay = {
+      title: booking.homestay_title,
+      location_display: booking.location_display,
+      host_name: booking.host_name,
+      host_whatsapp: booking.host_whatsapp,
+    };
+    res.json({
+      ...booking,
+      guest_whatsapp_link: guestWhatsAppLink(booking, homestay),
+      whatsapp_link: hostWhatsAppLink(booking, homestay),
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -244,23 +258,15 @@ router.post('/', requireAuth, async (req, res) => {
       `Please reply 1 to CONFIRM or 2 to DECLINE.`
     );
     const whatsappLink = `https://wa.me/${hostWhatsAppDigits}?text=${waText}`;
-
     const created = await get('SELECT * FROM bookings WHERE id = ?', [id]);
-    void (async () => {
-      try {
-        const user = await get('SELECT email FROM users WHERE id = ?', [req.user.id]);
-        await notifyBookingCreated(created, homestay, user?.email || created.user_email);
-      } catch (err) {
-        console.error('[mail] create notify failed:', err.message);
-      }
-    })();
     res.status(201).json({
       ...created,
       nights,
       homestay_title: homestay.title,
       host_name: homestay.host_name,
       host_whatsapp: homestay.host_whatsapp,
-      whatsapp_link: whatsappLink
+      whatsapp_link: hostWhatsAppLink(created, homestay) || whatsappLink,
+      guest_whatsapp_link: guestWhatsAppLink(created, homestay),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

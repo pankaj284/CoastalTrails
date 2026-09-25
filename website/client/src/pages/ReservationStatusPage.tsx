@@ -19,6 +19,7 @@ import {
   Moon,
   Wallet,
   X,
+  MessageCircle,
 } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router-dom';
 import type { Booking, User } from '../types';
@@ -436,6 +437,17 @@ export function ReservationStatusPage({ currentUser, initialRefCode: propRefCode
                 <XCircle className="h-3.5 w-3.5" />
                 <span>{cancelling ? 'Cancelling…' : 'Cancel booking'}</span>
               </button>
+            ) : null}
+            {selectedBooking.guest_whatsapp_link ? (
+              <a
+                href={selectedBooking.guest_whatsapp_link}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-ok/40 bg-ok/10 px-3.5 py-2 text-xs font-semibold text-ok transition-colors hover:bg-ok/20"
+              >
+                <MessageCircle className="h-3.5 w-3.5" />
+                <span>WhatsApp details</span>
+              </a>
             ) : null}
             <button
               type="button"

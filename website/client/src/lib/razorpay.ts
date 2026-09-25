@@ -71,6 +71,8 @@ export async function openRazorpayCheckout(config: CheckoutConfig): Promise<void
   await loadRazorpayScript();
   if (!window.Razorpay) throw new Error('Payment gateway failed to load.');
 
+  let handled = false;
+
   const rzp = new window.Razorpay({
     key: config.key,
     amount: config.amountPaise,
@@ -88,16 +90,23 @@ export async function openRazorpayCheckout(config: CheckoutConfig): Promise<void
     },
     modal: {
       ondismiss: () => {
-        void config.onCancel?.();
+        if (!handled) {
+          handled = true;
+          void config.onCancel?.();
+        }
       },
     },
     handler: (r) => {
+      handled = true;
       void config.onSuccess(r);
     },
   });
 
   rzp.on('payment.failed', (r) => {
-    config.onFail?.(r.error?.description || 'Payment failed. Please try again.');
+    if (!handled) {
+      handled = true;
+      config.onFail?.(r.error?.description || 'Payment failed. Please try again.');
+    }
   });
 
   rzp.open();

@@ -101,6 +101,24 @@ app.use((err, req, res, next) => {
   return res.status(500).json({ error: 'Internal server error. Please try again.' });
 });
 
+// In production, serve built client web app if dist folder exists
+const clientDist = path.resolve(__dirname, '../client/dist');
+if (fs.existsSync(clientDist)) {
+  app.use(express.static(clientDist));
+  app.get('*', (req, res, next) => {
+    if (req.originalUrl.startsWith('/api') || req.originalUrl.startsWith('/uploads')) return next();
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+}
+
+// Process Crash Prevention Guards
+process.on('uncaughtException', (err) => {
+  console.error(`[${new Date().toISOString()}] [UNCAUGHT EXCEPTION]:`, err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.error(`[${new Date().toISOString()}] [UNHANDLED REJECTION]:`, reason);
+});
+
 // Startup & Auto-Init
 async function start() {
   try {

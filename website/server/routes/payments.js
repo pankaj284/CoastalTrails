@@ -3,7 +3,8 @@ import crypto from 'crypto';
 import Razorpay from 'razorpay';
 import { all, get, run } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
-import { sendPaymentFailedEmail, sendPaymentSuccessEmail } from '../services/mail.js';
+import { sendAdminNewBookingAlert, sendPaymentFailedEmail, sendPaymentSuccessEmail } from '../services/mail.js';
+import { sendBookingWhatsApp } from '../utils/whatsapp.js';
 
 const router = express.Router();
 
@@ -31,28 +32,42 @@ async function markBookingPaid(booking, payment, paymentId) {
     paymentId,
     payment.id,
   ]);
-  await run(
+  const paidRun = await run(
     `UPDATE bookings
      SET payment_status = 'paid', payment_id = ?, paid_at = NOW(),
          advance_paid = ?, balance_payable_at_property = ?,
          status = CASE WHEN status = 'pending_payment' THEN 'awaiting_host' ELSE status END
-     WHERE id = ?`,
+     WHERE id = ? AND payment_status != 'paid'`,
     [paymentId, payment.amount, Number(booking.total_amount) - Number(payment.amount), booking.id]
   );
   const updated = await get('SELECT * FROM bookings WHERE id = ?', [booking.id]);
-  void notifyBookingPaid(updated);
+  if (paidRun.changes > 0) void notifyBookingPaid(updated);
   return updated;
 }
 
 async function notifyBookingPaid(booking) {
+  let stay = null;
   try {
-    const user = await get('SELECT email FROM users WHERE id = ? OR phone = ?', [booking.user_id, booking.user_phone]);
-    const stay = await get(
+    stay = await get(
       `SELECT h.title, h.location_display, h.host_name, h.host_whatsapp, h.rating, h.reviews_count,
               (SELECT image_url FROM homestay_images i WHERE i.homestay_id = h.id ORDER BY i.sort_order ASC LIMIT 1) AS image
        FROM homestays h WHERE h.id = ?`,
       [booking.homestay_id]
     );
+  } catch (err) {
+    console.error('[whatsapp] stay lookup failed:', err.message);
+  }
+
+  const bookingWhatsapp = await sendBookingWhatsApp(booking, stay);
+  console.log(
+    bookingWhatsapp.sent
+      ? `WhatsApp booking confirmation sent to ${booking.user_phone} (${bookingWhatsapp.provider})`
+      : `WhatsApp booking send failed for ${booking.user_phone}: ${bookingWhatsapp.reason}`
+  );
+
+
+  try {
+    const user = await get('SELECT email FROM users WHERE id = ? OR phone = ?', [booking.user_id, booking.user_phone]);
     const to = user?.email || booking.user_email;
     if (!to) {
       console.log(`[mail] No email on file for booking ${booking.reference_code} — skipped.`);
@@ -70,6 +85,21 @@ async function notifyBookingPaid(booking) {
       rating: stay?.rating,
       reviews: stay?.reviews_count,
     });
+
+    const adminEmail = process.env.MAIL_ADMIN || process.env.SMTP_USER;
+    if (adminEmail) {
+      await sendAdminNewBookingAlert({
+        to: adminEmail,
+        booking,
+        stayTitle: stay?.title || 'Stay',
+        location: stay?.location_display || '',
+        hostName: stay?.host_name || '',
+        stayImage: stay?.image || '',
+        guestName: booking.user_name,
+        rating: stay?.rating,
+        reviews: stay?.reviews_count,
+      });
+    }
   } catch (err) {
     console.error('[mail] Failed to send payment email:', err.message);
   }
@@ -248,36 +278,61 @@ router.post('/:bookingId/fail', requireAuth, async (req, res) => {
       "SELECT * FROM payments WHERE booking_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 1",
       [booking.id]
     );
+
+    // Only notify if payment or booking was still pending (prevents duplicate emails when modal is cancelled)
+    const wasPending = Boolean(payment) || booking.payment_status === 'pending';
+
     if (payment) await markPaymentFailed(booking, payment);
+    if (booking.payment_status === 'pending') {
+      await run("UPDATE bookings SET payment_status = 'failed' WHERE id = ?", [booking.id]);
+    }
 
     const updated = await get('SELECT * FROM bookings WHERE id = ?', [booking.id]);
-    void (async () => {
-      try {
-        const user = await get('SELECT email FROM users WHERE id = ? OR phone = ?', [booking.user_id, booking.user_phone]);
-        const stay = await get(
-          `SELECT h.title, h.location_display, h.host_name, h.rating, h.reviews_count,
-                  (SELECT image_url FROM homestay_images i WHERE i.homestay_id = h.id ORDER BY i.sort_order ASC LIMIT 1) AS image
-           FROM homestays h WHERE h.id = ?`,
-          [booking.homestay_id]
-        );
-        const to = user?.email || booking.user_email;
-        if (to) {
-          await sendPaymentFailedEmail({
-            to,
-            booking: updated,
-            stayTitle: stay?.title || 'Your stay',
-            location: stay?.location_display || '',
-            hostName: stay?.host_name || '',
-            stayImage: stay?.image || '',
-            guestName: updated.user_name,
-            rating: stay?.rating,
-            reviews: stay?.reviews_count,
-          });
+
+    if (wasPending) {
+      void (async () => {
+        let stay = null;
+        try {
+          stay = await get(
+            `SELECT h.title, h.location_display, h.host_name, h.rating, h.reviews_count,
+                    (SELECT image_url FROM homestay_images i WHERE i.homestay_id = h.id ORDER BY i.sort_order ASC LIMIT 1) AS image
+             FROM homestays h WHERE h.id = ?`,
+            [booking.homestay_id]
+          );
+        } catch (err) {
+          console.error('[mail] stay lookup failed:', err.message);
         }
-      } catch (err) {
-        console.error('[mail] failed-payment notify error:', err.message);
-      }
-    })();
+
+        try {
+          // Strictly resolve recipient to the particular booking owner only (no admin/host)
+          let to = null;
+          if (req.user?.id === booking.user_id && req.user?.email) {
+            to = req.user.email;
+          } else if (booking.user_id) {
+            const user = await get('SELECT email FROM users WHERE id = ?', [booking.user_id]);
+            to = user?.email;
+          } else if (booking.user_phone) {
+            const user = await get('SELECT email FROM users WHERE phone = ?', [booking.user_phone]);
+            to = user?.email;
+          }
+          if (to) {
+            await sendPaymentFailedEmail({
+              to,
+              booking: updated,
+              stayTitle: stay?.title || 'Your stay',
+              location: stay?.location_display || '',
+              hostName: stay?.host_name || '',
+              stayImage: stay?.image || '',
+              guestName: updated.user_name,
+              rating: stay?.rating,
+              reviews: stay?.reviews_count,
+            });
+          }
+        } catch (err) {
+          console.error('[mail] failed-payment notify error:', err.message);
+        }
+      })();
+    }
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: 'Could not update the payment right now.' });

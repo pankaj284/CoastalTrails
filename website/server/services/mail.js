@@ -172,6 +172,25 @@ function cancelledReceipt(booking, paymentState) {
 function voucher({ booking, stay, paymentState, statusPill, cta, guestName, cancelled }) {
   const n = nights(booking);
   const roomLabel = booking.room_number ? `Room ${booking.room_number}` : 'Private Chalet';
+  // Fast-Track Pass QR code is ONLY issued for confirmed, paid bookings (never for failed, cancelled, or pending holds)
+  const hasPass = !cancelled && paymentState === 'paid';
+  const passBadgeText = hasPass
+    ? 'Digital Pass 2026'
+    : paymentState === 'failed'
+      ? 'Payment Notice'
+      : cancelled
+        ? 'Cancelled'
+        : 'Booking Hold';
+  const passBadgeBg = hasPass
+    ? '#e4f2ee'
+    : paymentState === 'failed' || cancelled
+      ? '#fef2f2'
+      : '#fef8ec';
+  const passBadgeColor = hasPass
+    ? '#0f3d35'
+    : paymentState === 'failed' || cancelled
+      ? '#b91c1c'
+      : '#b45309';
   return `
         <table role="presentation" class="email-container" width="100%" border="0" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;background-color:#ffffff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.05);">
 
@@ -184,7 +203,7 @@ function voucher({ booking, stay, paymentState, statusPill, cta, guestName, canc
                   </td>
                   <td valign="middle">
                     <div>
-                      <span style="background-color:#e4f2ee;color:#0f3d35;font-size:9px;font-weight:800;letter-spacing:0.8px;padding:3px 6px;border-radius:4px;text-transform:uppercase;">Digital Pass 2026</span>
+                      <span style="background-color:${passBadgeBg};color:${passBadgeColor};font-size:9px;font-weight:800;letter-spacing:0.8px;padding:3px 6px;border-radius:4px;text-transform:uppercase;">${passBadgeText}</span>
                     </div>
                     <div style="font-family:'Courier New',monospace;font-size:15px;font-weight:800;color:#0f3d35;letter-spacing:0.5px;margin-top:3px;">${escapeHtml(booking.reference_code)}</div>
                     ${guestName ? `<div style="font-size:10px;color:#697471;margin-top:2px;letter-spacing:0.2px;">Guest: ${escapeHtml(guestName)}</div>` : ''}
@@ -285,6 +304,7 @@ function voucher({ booking, stay, paymentState, statusPill, cta, guestName, canc
             <td class="mobile-padding" style="padding:20px 22px;">
               <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0">
                 <tr>
+                  ${hasPass ? `
                   <td width="220" align="center" valign="top" class="mobile-stack mobile-border-bottom mobile-no-padding-right" style="padding-right:24px;text-align:center;">
                     <div style="font-size:11px;font-weight:800;color:#0f3d35;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px;">Fast-Track Pass</div>
                     <img src="cid:qrcode" alt="Check-in QR Code ${escapeHtml(booking.reference_code)}" width="140" height="140" style="display:block;margin:0 auto;">
@@ -294,7 +314,7 @@ function voucher({ booking, stay, paymentState, statusPill, cta, guestName, canc
                       ${icon('smartphone', 12, 'margin-right:2px;')}
                       Apple &bull; Google Wallet Ready
                     </div>
-                  </td>
+                  </td>` : ''}
                   <td valign="top" class="mobile-stack">
                     <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin-bottom:8px;">
                       <tr>
@@ -319,6 +339,7 @@ function voucher({ booking, stay, paymentState, statusPill, cta, guestName, canc
             </td>
           </tr>
 
+          ${hasPass ? `
           <tr>
             <td class="mobile-padding" style="padding:0 22px 18px 22px;">
               <table role="presentation" width="100%" border="0" cellpadding="0" cellspacing="0" style="border-top:1px solid #f1f5f9;padding-top:12px;font-size:11px;color:#64748b;line-height:17px;">
@@ -334,7 +355,7 @@ function voucher({ booking, stay, paymentState, statusPill, cta, guestName, canc
                 </tr>
               </table>
             </td>
-          </tr>
+          </tr>` : ''}
 
           <tr>
             <td class="mobile-padding" style="background-color:#ffffff;border-top:1px solid #f0eee3;padding:18px 22px;text-align:center;">
@@ -464,7 +485,7 @@ export async function sendPaymentFailedEmail({ to, booking, stayTitle, location,
       guestName,
     }),
   });
-  return send({ to, subject: `Payment failed · ${booking.reference_code} — retry your 20% hold`, html, label: `payment failed email for ${booking.reference_code}`, qrText: qrTextFor(booking) });
+  return send({ to, subject: `Payment failed · ${booking.reference_code} — retry your 20% hold`, html, label: `payment failed email for ${booking.reference_code}`, qrText: null });
 }
 
 export async function sendHoldCreatedEmail({ to, booking, stayTitle, location, hostName, guestName, rating, reviews }) {
@@ -480,7 +501,7 @@ export async function sendHoldCreatedEmail({ to, booking, stayTitle, location, h
       guestName,
     }),
   });
-  return send({ to, subject: `Hold created · ${booking.reference_code} — complete your payment`, html, label: `hold email for ${booking.reference_code}`, qrText: qrTextFor(booking) });
+  return send({ to, subject: `Hold created · ${booking.reference_code} — complete your payment`, html, label: `hold email for ${booking.reference_code}`, qrText: null });
 }
 
 export async function sendBookingStatusEmail({ to, booking, stayTitle, location, hostName, status, guestName, rating, reviews }) {
@@ -492,11 +513,19 @@ export async function sendBookingStatusEmail({ to, booking, stayTitle, location,
         ? PILLS.declined()
         : PILLS.cancelled();
   const paymentState = booking.payment_status === 'paid' ? 'paid' : booking.payment_status === 'refunded' ? 'refunded' : 'pending';
+  const isCancelled = status === 'cancelled' || status === 'declined';
+  const isPaid = paymentState === 'paid' && !isCancelled;
   const html = emailShell({
     title: `Booking Update - ${stayTitle} | Coastal Trails`,
-    inner: voucher({ booking, stay, paymentState, statusPill, guestName, cancelled: status === 'cancelled' }),
+    inner: voucher({ booking, stay, paymentState, statusPill, guestName, cancelled: isCancelled }),
   });
-  return send({ to, subject: `Booking update · ${booking.reference_code} — ${status}`, html, label: `status email (${status}) for ${booking.reference_code}`, qrText: qrTextFor(booking) });
+  return send({
+    to,
+    subject: `Booking update · ${booking.reference_code} — ${status}`,
+    html,
+    label: `status email (${status}) for ${booking.reference_code}`,
+    qrText: isPaid ? qrTextFor(booking) : null,
+  });
 }
 
 export async function sendAdminNewBookingAlert({ to, booking, stayTitle, location, hostName, guestName, rating, reviews }) {

@@ -54,7 +54,17 @@ function nightsBetween(from: string, to: string): string[] {
   return out;
 }
 
-function FlashMessage({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+function FlashMessage({
+  message,
+  onDismiss,
+  onAction,
+  actionLabel,
+}: {
+  message: string;
+  onDismiss: () => void;
+  onAction?: () => void;
+  actionLabel?: string;
+}) {
   return (
     <motion.div
       initial={{ opacity: 0, y: -6 }}
@@ -62,20 +72,31 @@ function FlashMessage({ message, onDismiss }: { message: string; onDismiss: () =
       exit={{ opacity: 0, y: -6 }}
       transition={{ duration: 0.2, ease: easeOut }}
       role="alert"
-      className="flex items-start justify-between gap-2.5 rounded-xl border border-err/30 bg-err/10 p-3 text-xs font-semibold text-err"
+      className="flex flex-col gap-2 rounded-xl border border-err/30 bg-err/10 p-3 text-xs font-semibold text-err"
     >
-      <span className="flex items-start gap-2">
-        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-        <span>{message}</span>
-      </span>
-      <button
-        type="button"
-        onClick={onDismiss}
-        aria-label="Dismiss message"
-        className="shrink-0 rounded-full p-0.5 text-err/70 transition-colors hover:bg-err/10 hover:text-err"
-      >
-        <X className="h-3.5 w-3.5" />
-      </button>
+      <div className="flex items-start justify-between gap-2.5">
+        <span className="flex items-start gap-2">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{message}</span>
+        </span>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss message"
+          className="shrink-0 rounded-full p-0.5 text-err/70 transition-colors hover:bg-err/10 hover:text-err"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {onAction && actionLabel ? (
+        <button
+          type="button"
+          onClick={onAction}
+          className="self-start rounded-lg bg-err px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-opacity hover:opacity-90"
+        >
+          {actionLabel}
+        </button>
+      ) : null}
     </motion.div>
   );
 }
@@ -112,7 +133,13 @@ const stepVariants = {
   exit: (dir: number) => ({ x: dir > 0 ? -48 : 48, opacity: 0 }),
 };
 
-export function BookingPage({ currentUser }: { currentUser?: User | null }) {
+export function BookingPage({
+  currentUser,
+  onRequireAuth,
+}: {
+  currentUser?: User | null;
+  onRequireAuth?: () => void;
+}) {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [homestay, setHomestay] = useState<Homestay | null>(null);
@@ -132,6 +159,16 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
   const [paymentMethod, setPaymentMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
   const [paying, setPaying] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (currentUser) {
+      if (!name) setName(currentUser.name || '');
+      if (!phone) setPhone(currentUser.phone || '');
+      if (error && (error.includes('session has expired') || error.includes('sign in'))) {
+        setError(null);
+      }
+    }
+  }, [currentUser]);
 
   useEffect(() => {
     if (!id) return;
@@ -269,7 +306,11 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
       // Rooms are now held with payment pending — nothing is marked paid yet
       setPendingBooking(booking);
     } catch (err: any) {
-      setError(err.message || 'Failed to lock the dates.');
+      const msg = err?.message || 'Failed to lock the dates.';
+      setError(msg);
+      if (msg.includes('session has expired') || msg.includes('sign in')) {
+        onRequireAuth?.();
+      }
     } finally {
       setSubmitting(false);
     }
@@ -333,6 +374,19 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
       setPaying(false);
     }
   }
+
+  // Attempt to open WhatsApp with the full booking details right after confirmation.
+  // Browsers may block the popup — the explicit button on the success screen always works.
+  useEffect(() => {
+    if (confirmed?.guest_whatsapp_link) {
+      try {
+        window.open(confirmed.guest_whatsapp_link, '_blank', 'noopener');
+      } catch {
+        /* popup blocked */
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [confirmed?.id]);
 
   if (loading) {
     return (
@@ -442,20 +496,35 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
               ))}
             </div>
 
-            <div className="flex flex-col justify-center gap-3 sm:flex-row">
+            <div className="flex flex-col justify-center gap-3 sm:flex-row sm:flex-wrap">
+              {confirmed.guest_whatsapp_link ? (
+                <a
+                  href={confirmed.guest_whatsapp_link}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-ok px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-ok/90"
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  Send details to my WhatsApp
+                </a>
+              ) : null}
               <Button onClick={() => navigate(`/reservation/${confirmed.reference_code}`)}>View reservation</Button>
               {confirmed.whatsapp_link ? (
                 <a
                   href={confirmed.whatsapp_link}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-ok px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-ok/90"
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-line-2 bg-elevated px-5 py-2.5 text-sm font-medium text-ink-2 transition-colors hover:border-tide hover:text-tide"
                 >
                   <MessageCircle className="h-4 w-4" />
-                  Coordinate arrival
+                  Message the host
                 </a>
               ) : null}
             </div>
+            <p className="text-[11px] text-ink-3">
+              Your WhatsApp opens with the full booking details pre-filled — reference, stay, host, dates, room, amounts and
+              balance. Just press send.
+            </p>
           </motion.div>
         ) : payResult === 'failed' && pendingBooking ? (
           <motion.div
@@ -837,7 +906,22 @@ export function BookingPage({ currentUser }: { currentUser?: User | null }) {
                       </div>
 
                       <AnimatePresence>
-                        {error ? <FlashMessage message={error} onDismiss={() => setError(null)} /> : null}
+                        {error ? (
+                          <FlashMessage
+                            message={error}
+                            onDismiss={() => setError(null)}
+                            onAction={
+                              error.includes('session has expired') || error.includes('sign in')
+                                ? onRequireAuth
+                                : undefined
+                            }
+                            actionLabel={
+                              error.includes('session has expired') || error.includes('sign in')
+                                ? 'Sign In Again'
+                                : undefined
+                            }
+                          />
+                        ) : null}
                       </AnimatePresence>
 
                       <MagneticButton className="w-full">

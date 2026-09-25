@@ -210,8 +210,9 @@ export function AdminStayFormPage() {
     try {
       await api.deleteStay(id);
       navigate('/stays');
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error('Delete homestay failed:', err);
+      alert(err.message || 'Failed to remove homestay');
     }
   }
 

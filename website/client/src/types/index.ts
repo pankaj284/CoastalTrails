@@ -61,6 +61,7 @@ export interface Booking {
   hold_expires_at?: string;
   nights?: number;
   whatsapp_link?: string;
+  guest_whatsapp_link?: string | null;
 }
 
 export interface TransitRoute {

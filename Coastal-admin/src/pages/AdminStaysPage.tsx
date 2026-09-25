@@ -108,8 +108,9 @@ export function AdminStaysPage() {
       await api.deleteStay(s.id);
       setStays((list) => list.filter((x) => x.id !== s.id));
       setDeleteTarget(null);
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error('Delete homestay failed:', err);
+      alert(err.message || 'Failed to remove homestay');
     } finally {
       setBusy(false);
     }

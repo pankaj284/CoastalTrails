@@ -23,7 +23,7 @@ export function NotFoundPage() {
           onClick={() => navigate('/trails')}
           className="rounded-xl border border-line-2 bg-elevated px-4 py-2.5 text-xs font-semibold text-ink-2 transition-colors hover:border-tide hover:text-tide"
         >
-          Trails & ferry
+          Trails & Culture
         </button>
       </div>
     </div>

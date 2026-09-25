@@ -239,9 +239,46 @@ router.put('/:id', async (req, res) => {
 // DELETE /api/homestays/:id
 router.delete('/:id', async (req, res) => {
   try {
-    await run('DELETE FROM homestays WHERE id = ?', [req.params.id]);
-    res.json({ success: true, message: `Homestay ${req.params.id} deleted` });
+    const stayId = req.params.id;
+    const existing = await get('SELECT id, title FROM homestays WHERE id = ?', [stayId]);
+    if (!existing) {
+      return res.status(404).json({ error: 'Homestay not found' });
+    }
+
+    // 1. Find all booking IDs for this homestay
+    const bookingRows = await all('SELECT id FROM bookings WHERE homestay_id = ?', [stayId]);
+    const bookingIds = (bookingRows || []).map((b) => b.id);
+
+    // 2. Delete payments and review media associated with those bookings
+    if (bookingIds.length > 0) {
+      const placeholders = bookingIds.map(() => '?').join(',');
+      await run(`DELETE FROM payments WHERE booking_id IN (${placeholders})`, bookingIds);
+      await run(`DELETE FROM review_media WHERE review_id IN (SELECT id FROM reviews WHERE booking_id IN (${placeholders}))`, bookingIds);
+      await run(`DELETE FROM reviews WHERE booking_id IN (${placeholders})`, bookingIds);
+    }
+
+    // 3. Delete reviews referencing this homestay directly
+    await run('DELETE FROM review_media WHERE review_id IN (SELECT id FROM reviews WHERE homestay_id = ?)', [stayId]);
+    await run('DELETE FROM reviews WHERE homestay_id = ?', [stayId]);
+
+    // 4. Delete bookings for this homestay
+    await run('DELETE FROM bookings WHERE homestay_id = ?', [stayId]);
+
+    // 5. Delete other dependent tables
+    await run('DELETE FROM room_status WHERE homestay_id = ?', [stayId]);
+    await run('DELETE FROM room_state WHERE homestay_id = ?', [stayId]);
+    await run('DELETE FROM stay_settings WHERE homestay_id = ?', [stayId]);
+    await run('DELETE FROM room_unavailability WHERE homestay_id = ?', [stayId]);
+    await run('DELETE FROM homestay_badges WHERE homestay_id = ?', [stayId]);
+    await run('DELETE FROM homestay_amenities WHERE homestay_id = ?', [stayId]);
+    await run('DELETE FROM homestay_images WHERE homestay_id = ?', [stayId]);
+
+    // 6. Delete the homestay record itself
+    await run('DELETE FROM homestays WHERE id = ?', [stayId]);
+
+    res.json({ success: true, message: `Homestay ${existing.title} (${stayId}) deleted successfully` });
   } catch (err) {
+    console.error('Delete homestay error:', err);
     res.status(500).json({ error: err.message });
   }
 });

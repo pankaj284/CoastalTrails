@@ -117,10 +117,27 @@ export function App() {
       const savedUser = localStorage.getItem('gokarna_traveler_user');
       if (savedUser) {
         const parsed = JSON.parse(savedUser) as User;
-        if (parsed && parsed.id && (parsed.phone || parsed.email)) {
+        if (parsed && parsed.id && parsed.token && (parsed.phone || parsed.email)) {
           setCurrentUser(parsed);
+          // Verify with server to ensure the session hasn't expired or been cleared
+          api.getMe().then((fresh) => {
+            if (fresh) {
+              const merged = { ...fresh, token: parsed.token };
+              setCurrentUser(merged);
+              try {
+                localStorage.setItem('gokarna_traveler_user', JSON.stringify(merged));
+              } catch {}
+            } else {
+              // Server rejected the session (expired or invalid in DB)
+              setCurrentUser(null);
+              try {
+                localStorage.removeItem('gokarna_traveler_user');
+              } catch {}
+            }
+          }).catch(() => {});
         } else {
           localStorage.removeItem('gokarna_traveler_user');
+          setCurrentUser(null);
         }
       }
     } catch (e) {
@@ -131,6 +148,20 @@ export function App() {
       // whether the visitor really needs to sign in.
       setAuthReady(true);
     }
+  }, []);
+
+  // Listen for session expiry event dispatched by api.ts
+  useEffect(() => {
+    const handleAuthExpired = () => {
+      setCurrentUser(null);
+      try {
+        localStorage.removeItem('gokarna_traveler_user');
+      } catch {}
+      setAuthMode('signin');
+      setIsAuthOpen(true);
+    };
+    window.addEventListener('auth:expired', handleAuthExpired);
+    return () => window.removeEventListener('auth:expired', handleAuthExpired);
   }, []);
 
   useLiveRefresh(() => {
@@ -157,7 +188,7 @@ export function App() {
   const commandItems = useMemo<CommandItem[]>(
     () => [
       { id: 'home', label: 'Explore homestays', onSelect: () => navigate('/') },
-      { id: 'trails', label: 'Cliff trails & ferry', onSelect: () => navigate('/trails') },
+      { id: 'trails', label: 'Trails & Culture', onSelect: () => navigate('/trails') },
       { id: 'bookings', label: 'Track bookings', onSelect: () => navigate('/bookings') },
     ],
     [navigate],
@@ -299,7 +330,13 @@ export function App() {
                   }}
                   onExplore={() => navigate('/')}
                 >
-                  <BookingPage currentUser={currentUser} />
+                  <BookingPage
+                    currentUser={currentUser}
+                    onRequireAuth={() => {
+                      setAuthMode('signin');
+                      setIsAuthOpen(true);
+                    }}
+                  />
                 </RequireAuth>
               }
             />
