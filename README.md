@@ -1,6 +1,9 @@
 # Coastal Trails — Gokarna Connect
 
-Curated coastal homestays across Gokarna, Karnataka — a Flutter mobile app, a React web experience, and a React admin console sharing one Express + MySQL backend.
+Curated coastal homestays across Gokarna, Karnataka — a React web experience and a React admin console sharing one Express + MySQL backend.
+
+> 📘 **Comprehensive Context & AI Assistant Guide:** See [AI_PROJECT_CONTEXT.md](AI_PROJECT_CONTEXT.md) for full architecture, ports, cPanel hosting, database configs, and guardrails.
+> 🔗 **Quick URLs & Ports:** See [URLS.md](URLS.md) for clickable local & production services.
 
 **The Coastal Trails Standard:** 10% fair host model (₹10 convenience fee), 20% online hold with 80% payable at the property, and every cottage mapped with cliff trails, ferry timings, and auto dispatcher helplines.
 
